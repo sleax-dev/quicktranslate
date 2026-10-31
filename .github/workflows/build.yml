@@ -1,0 +1,24 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: lts/* }
+      - uses: dtolnay/rust-toolchain@v1
+        with: { toolchain: stable, components: clippy }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: src-tauri }
+      - run: npm install
+      - run: npm run build # type-check and bundle the UI
+      - run: cargo clippy --locked -- -D warnings
+        working-directory: src-tauri
+      - run: npx tauri build --no-bundle # compile and link the release exe

@@ -1,8 +1,5 @@
-use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
+use std::sync::{LazyLock, RwLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
@@ -31,11 +28,19 @@ impl Default for Settings {
     }
 }
 
-pub static SETTINGS: Lazy<RwLock<Settings>> = Lazy::new(|| {
-    RwLock::new(load_settings_from_file())
-});
+static SETTINGS: LazyLock<RwLock<Settings>> = LazyLock::new(|| RwLock::new(load_settings_from_file()));
 
-pub static TRANSLATION_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+/// A copy of the current settings.
+pub fn current() -> Settings {
+    SETTINGS.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Replaces the settings and saves them to disk.
+pub fn replace(new_settings: Settings) -> Result<(), String> {
+    save_settings_to_file(&new_settings)?;
+    *SETTINGS.write().unwrap_or_else(|e| e.into_inner()) = new_settings;
+    Ok(())
+}
 
 fn get_settings_path() -> std::path::PathBuf {
     let app_data = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
@@ -43,54 +48,17 @@ fn get_settings_path() -> std::path::PathBuf {
 }
 
 fn load_settings_from_file() -> Settings {
-    let path = get_settings_path();
-    if path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(settings) = serde_json::from_str(&content) {
-                return settings;
-            }
-        }
-    }
-    Settings::default()
+    std::fs::read_to_string(get_settings_path())
+        .ok()
+        .and_then(|content| serde_json::from_str(&content).ok())
+        .unwrap_or_default()
 }
 
-pub fn save_settings_to_file(settings: &Settings) -> Result<(), String> {
+fn save_settings_to_file(settings: &Settings) -> Result<(), String> {
     let path = get_settings_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let content = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    std::fs::write(path, content).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-pub fn get_supported_langs() -> HashMap<String, String> {
-    let mut langs = HashMap::new();
-    langs.insert("auto".to_string(), "Otomatik".to_string());
-    langs.insert("tr".to_string(), "Türkçe".to_string());
-    langs.insert("en".to_string(), "İngilizce".to_string());
-    langs.insert("de".to_string(), "Almanca".to_string());
-    langs.insert("fr".to_string(), "Fransızca".to_string());
-    langs.insert("es".to_string(), "İspanyolca".to_string());
-    langs.insert("it".to_string(), "İtalyanca".to_string());
-    langs.insert("pt".to_string(), "Portekizce".to_string());
-    langs.insert("ru".to_string(), "Rusça".to_string());
-    langs.insert("ar".to_string(), "Arapça".to_string());
-    langs.insert("ja".to_string(), "Japonca".to_string());
-    langs.insert("ko".to_string(), "Korece".to_string());
-    langs.insert("zh".to_string(), "Çince".to_string());
-    langs.insert("hi".to_string(), "Hintçe".to_string());
-    langs.insert("nl".to_string(), "Felemenkçe".to_string());
-    langs.insert("pl".to_string(), "Lehçe".to_string());
-    langs.insert("sv".to_string(), "İsveççe".to_string());
-    langs.insert("da".to_string(), "Danca".to_string());
-    langs.insert("no".to_string(), "Norveççe".to_string());
-    langs.insert("fi".to_string(), "Fince".to_string());
-    langs.insert("el".to_string(), "Yunanca".to_string());
-    langs.insert("he".to_string(), "İbranice".to_string());
-    langs.insert("th".to_string(), "Tayca".to_string());
-    langs.insert("vi".to_string(), "Vietnamca".to_string());
-    langs.insert("id".to_string(), "Endonezce".to_string());
-    langs.insert("ms".to_string(), "Malezyaca".to_string());
-    langs
+    std::fs::write(path, content).map_err(|e| e.to_string())
 }

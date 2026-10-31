@@ -4,7 +4,6 @@ use std::collections::HashMap;
 pub enum Language {
     Turkish,
     English,
-    Other,
 }
 
 impl Language {
@@ -12,9 +11,12 @@ impl Language {
         // Get Windows locale
         #[cfg(target_os = "windows")]
         {
+            use std::os::windows::process::CommandExt;
             use std::process::Command;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000; // no console window flashes up at startup
             let output = Command::new("powershell")
-                .args(["-Command", "(Get-Culture).Name"])
+                .args(["-NoProfile", "-Command", "(Get-Culture).Name"])
+                .creation_flags(CREATE_NO_WINDOW)
                 .output();
 
             if let Ok(output) = output {
@@ -42,7 +44,7 @@ impl Translations {
     pub fn t(&self, key: &str) -> String {
         let tr = match self.lang {
             Language::Turkish => self.turkish(),
-            Language::English | Language::Other => self.english(),
+            Language::English => self.english(),
         };
         tr.get(key).map(|s| s.to_string()).unwrap_or_else(|| key.to_string())
     }

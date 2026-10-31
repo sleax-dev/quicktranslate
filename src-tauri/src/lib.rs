@@ -2,9 +2,10 @@ mod i18n;
 mod settings;
 mod translate;
 
+use enigo::{Direction, Enigo, Key, Keyboard, Settings as EnigoSettings};
 use i18n::Translations;
-use settings::{get_supported_langs, save_settings_to_file, SETTINGS, TRANSLATION_IN_PROGRESS};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -13,299 +14,169 @@ use tauri::{
 };
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_clipboard_manager::ClipboardExt;
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_log::{Target, TargetKind};
-use enigo::{Enigo, Keyboard, Settings, Key, Direction};
 
 #[tauri::command]
-async fn get_settings() -> Result<settings::Settings, String> {
-    let settings = SETTINGS.read();
-    Ok(settings.clone())
+fn get_settings() -> settings::Settings {
+    settings::current()
 }
 
 #[tauri::command]
-async fn update_settings(new_settings: settings::Settings) -> Result<(), String> {
-    let mut settings = SETTINGS.write();
-    *settings = new_settings.clone();
-    save_settings_to_file(&settings)?;
-    Ok(())
+fn update_settings(new_settings: settings::Settings) -> Result<(), String> {
+    settings::replace(new_settings)
 }
 
 #[tauri::command]
-async fn get_languages() -> Result<std::collections::HashMap<String, String>, String> {
-    Ok(get_supported_langs())
+fn register_hotkey(app: AppHandle, hotkey: String) -> Result<(), String> {
+    bind_hotkey(&app, &hotkey)
 }
 
-fn send_ctrl_c() {
-    if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
-        let _ = enigo.key(Key::Control, Direction::Press);
-        let _ = enigo.key(Key::Unicode('c'), Direction::Click);
-        let _ = enigo.key(Key::Control, Direction::Release);
-    }
-}
-
-fn send_ctrl_v() {
-    if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
-        let _ = enigo.key(Key::Control, Direction::Press);
-        let _ = enigo.key(Key::Unicode('v'), Direction::Click);
-        let _ = enigo.key(Key::Control, Direction::Release);
-    }
-}
-
-fn send_ctrl_a() {
-    if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
-        let _ = enigo.key(Key::Control, Direction::Press);
-        let _ = enigo.key(Key::Unicode('a'), Direction::Click);
-        let _ = enigo.key(Key::Control, Direction::Release);
-    }
-}
-
-#[tauri::command]
-async fn translate_and_replace(app: AppHandle) -> Result<String, String> {
-    if TRANSLATION_IN_PROGRESS.load(Ordering::SeqCst) {
-        return Err("Çeviri zaten devam ediyor".to_string());
-    }
-
-    TRANSLATION_IN_PROGRESS.store(true, Ordering::SeqCst);
-
-    // Step 1: Small delay
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
-    // Step 2: Select all first (Ctrl+A) - this works whether something is selected or not
-    send_ctrl_a();
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
-    // Step 3: Copy selection (Ctrl+C)
-    send_ctrl_c();
-    std::thread::sleep(std::time::Duration::from_millis(200));
-
-    // Step 4: Read from clipboard
-    let mut text = match app.clipboard().read_text() {
-        Ok(t) => t,
-        Err(e) => {
-            TRANSLATION_IN_PROGRESS.store(false, Ordering::SeqCst);
-            return Err(format!("Clipboard okunamadı: {}", e));
-        }
-    };
-
-    if text.trim().is_empty() {
-            TRANSLATION_IN_PROGRESS.store(false, Ordering::SeqCst);
-            return Err("Çevrilecek metin bulunamadı".to_string());
-        }
-
-    let source_lang = SETTINGS.read().source_lang.clone();
-    let target_lang = SETTINGS.read().target_lang.clone();
-    let api_provider = SETTINGS.read().api_provider.clone();
-    let api_key = SETTINGS.read().api_key.clone();
-    let translation_type = SETTINGS.read().translation_type.clone();
-
-    // Step 4: Translate
-    let translated = match translate::translate_text_sync(&text, &source_lang, &target_lang, &api_provider, &api_key, &translation_type) {
-        Ok(t) => t,
-        Err(e) => {
-            TRANSLATION_IN_PROGRESS.store(false, Ordering::SeqCst);
-            return Err(format!("Çeviri hatası: {}", e));
-        }
-    };
-
-    // Step 5: Write to clipboard
-    if let Err(e) = app.clipboard().write_text(&translated) {
-        TRANSLATION_IN_PROGRESS.store(false, Ordering::SeqCst);
-        return Err(format!("Clipboard yazılamadı: {}", e));
-    }
-
-    // Small delay
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
-    // Step 6: Select all (Ctrl+A)
-    send_ctrl_a();
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
-    // Step 7: Paste (Ctrl+V)
-    send_ctrl_v();
-
-    TRANSLATION_IN_PROGRESS.store(false, Ordering::SeqCst);
-    Ok(translated)
-}
-
-#[tauri::command]
-async fn translate_text(
-    text: String,
-    source_lang: String,
-    target_lang: String,
-    api_provider: String,
-    api_key: String,
-    translation_type: String,
-) -> Result<String, String> {
-    if TRANSLATION_IN_PROGRESS.load(Ordering::SeqCst) {
-        return Err("Çeviri zaten devam ediyor".to_string());
-    }
-
-    TRANSLATION_IN_PROGRESS.store(true, Ordering::SeqCst);
-    let result = translate::translate_text_sync(&text, &source_lang, &target_lang, &api_provider, &api_key, &translation_type);
-    TRANSLATION_IN_PROGRESS.store(false, Ordering::SeqCst);
-    result
-}
-
-#[tauri::command]
-async fn show_window(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        window.show().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-async fn hide_window(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        window.hide().map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-async fn register_hotkey(app: AppHandle, hotkey: String) -> Result<(), String> {
-    let shortcut: Shortcut = hotkey.parse().map_err(|e| format!("{:?}", e))?;
-
-    let app_for_translate = app.clone();
-    app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, _event| {
-        // Don't emit event, just do translation directly
-        let app_clone = app_for_translate.clone();
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                let _ = translate_and_replace(app_clone).await;
+/// Makes `hotkey` the only global shortcut: the previous one stops working.
+fn bind_hotkey(app: &AppHandle, hotkey: &str) -> Result<(), String> {
+    let shortcut: Shortcut = hotkey.parse().map_err(|e| format!("{e:?}"))?;
+    let shortcuts = app.global_shortcut();
+    shortcuts.unregister_all().map_err(|e| e.to_string())?;
+    shortcuts
+        .on_shortcut(shortcut, |app, _shortcut, event| {
+            // The handler also fires when the keys are released.
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            let app = app.clone();
+            std::thread::spawn(move || {
+                if let Err(e) = translate_and_replace(&app) {
+                    log::warn!("{e}");
+                }
             });
-        });
-    }).map_err(|e| e.to_string())?;
+        })
+        .map_err(|e| e.to_string())
+}
 
+static TRANSLATING: AtomicBool = AtomicBool::new(false);
+
+/// Holds the "translation running" flag and clears it when dropped, on every return path.
+struct Busy;
+
+impl Busy {
+    fn acquire() -> Option<Self> {
+        TRANSLATING
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| Busy)
+    }
+}
+
+impl Drop for Busy {
+    fn drop(&mut self) {
+        TRANSLATING.store(false, Ordering::SeqCst);
+    }
+}
+
+fn press_ctrl(key: char) {
+    if let Ok(mut enigo) = Enigo::new(&EnigoSettings::default()) {
+        let _ = enigo.key(Key::Control, Direction::Press);
+        let _ = enigo.key(Key::Unicode(key), Direction::Click);
+        let _ = enigo.key(Key::Control, Direction::Release);
+    }
+}
+
+fn wait(ms: u64) {
+    std::thread::sleep(Duration::from_millis(ms));
+}
+
+/// Copies the text of the focused field, translates it and pastes the result back.
+/// Blocking: runs on its own thread.
+fn translate_and_replace(app: &AppHandle) -> Result<(), String> {
+    let _busy = Busy::acquire().ok_or("Çeviri zaten devam ediyor")?;
+
+    wait(100);
+    press_ctrl('a');
+    wait(100);
+    press_ctrl('c');
+    wait(200);
+
+    let text = app.clipboard().read_text().map_err(|e| format!("Clipboard okunamadı: {e}"))?;
+    if text.trim().is_empty() {
+        return Err("Çevrilecek metin bulunamadı".to_string());
+    }
+
+    let s = settings::current();
+    let translated = translate::translate_text(&text, &s.source_lang, &s.target_lang, &s.api_provider, &s.api_key, &s.translation_type)
+        .map_err(|e| format!("Çeviri hatası: {e}"))?;
+
+    app.clipboard().write_text(&translated).map_err(|e| format!("Clipboard yazılamadı: {e}"))?;
+    wait(100);
+    press_ctrl('a');
+    wait(100);
+    press_ctrl('v');
     Ok(())
+}
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }
 
 fn setup_tray(app: &AppHandle, i18n: &Translations) -> Result<(), Box<dyn std::error::Error>> {
     let show_i = MenuItem::with_id(app, "show", i18n.t("show"), true, None::<&str>)?;
     let settings_i = MenuItem::with_id(app, "settings", i18n.t("settings"), true, None::<&str>)?;
     let quit_i = MenuItem::with_id(app, "quit", i18n.t("quit"), true, None::<&str>)?;
-
     let menu = Menu::with_items(app, &[&show_i, &settings_i, &quit_i])?;
+    let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
 
-    let icon_bytes = include_bytes!("../icons/32x32.png");
-    let icon = Image::from_bytes(icon_bytes)?;
-
-    let _tray = TrayIconBuilder::new()
+    TrayIconBuilder::new()
         .icon(icon)
         .menu(&menu)
         .tooltip(i18n.t("tooltip"))
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
+            "show" => show_main_window(app),
             "settings" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    let _ = app.emit("open-settings", ());
-                }
+                show_main_window(app);
+                let _ = app.emit("open-settings", ());
             }
-            "quit" => {
-                app.exit(0);
-            }
+            "quit" => app.exit(0),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
                 let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    if window.is_visible().unwrap_or(false) {
+                match app.get_webview_window("main") {
+                    Some(window) if window.is_visible().unwrap_or(false) => {
                         let _ = window.hide();
-                    } else {
-                        let _ = window.show();
-                        let _ = window.set_focus();
                     }
+                    _ => show_main_window(app),
                 }
             }
         })
         .build(app)?;
-
-    Ok(())
-}
-
-fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let settings = SETTINGS.read();
-    let hotkey = settings.hotkey.clone();
-
-    let shortcut: Shortcut = hotkey.parse()?;
-    let app_for_translate = app.clone();
-
-    app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, _event| {
-        // Use a separate thread with its own tokio runtime
-        let app_clone = app_for_translate.clone();
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                let _ = translate_and_replace(app_clone).await;
-            });
-        });
-    }).map_err(|e| e.to_string())?;
-
     Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            Some(vec!["--minimized"]),
-        ))
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
         .plugin(
             tauri_plugin_log::Builder::new()
-                .targets([
-                    Target::new(TargetKind::Stdout),
-                    Target::new(TargetKind::LogDir { file_name: None }),
-                ])
+                .targets([Target::new(TargetKind::Stdout), Target::new(TargetKind::LogDir { file_name: None })])
                 .build(),
         )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_http::init())
-        .invoke_handler(tauri::generate_handler![
-            get_settings,
-            update_settings,
-            get_languages,
-            translate_text,
-            translate_and_replace,
-            show_window,
-            hide_window,
-            register_hotkey,
-        ])
+        .invoke_handler(tauri::generate_handler![get_settings, update_settings, register_hotkey])
         .setup(|app| {
             let handle = app.handle().clone();
-            let i18n = Translations::new();
-            setup_tray(&handle, &i18n)?;
-            setup_global_shortcut(&handle)?;
+            setup_tray(&handle, &Translations::new())?;
+            bind_hotkey(&handle, &settings::current().hotkey)?;
 
-            // Check if launched with --minimized (autostart) or not
-            let args: Vec<String> = std::env::args().collect();
-            let should_minimize = args.contains(&"--minimized".to_string());
-
+            // Started by autostart with --minimized: stay in the tray.
+            if !std::env::args().any(|a| a == "--minimized") {
+                show_main_window(&handle);
+            }
             if let Some(window) = app.get_webview_window("main") {
-                // If not minimized (portable run), show window
-                if !should_minimize {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-
                 let w = window.clone();
                 window.on_window_event(move |event| {
                     if let WindowEvent::CloseRequested { api, .. } = event {
@@ -314,7 +185,6 @@ pub fn run() {
                     }
                 });
             }
-
             Ok(())
         })
         .run(tauri::generate_context!())

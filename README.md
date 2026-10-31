@@ -56,11 +56,11 @@ Right-click the system tray icon and select "Settings":
 ## API Services
 
 ### MyMemory (Free)
-- Unlimited usage, no API key required
+- No API key required; the free tier allows about 5,000 characters a day
 - Quality: Good
 
 ### DeepL
-- API key required (deepl.com/pro-api)
+- API key required (deepl.com/pro-api). Free and Pro keys both work
 - Quality: Very Good
 - Supports formal/casual style
 
@@ -74,6 +74,16 @@ Right-click the system tray icon and select "Settings":
 - Windows 10 or later
 - 50MB disk space
 - WebView2 Runtime
+
+## Building from source
+
+Requires the current LTS version of [Node.js](https://nodejs.org), stable [Rust](https://rustup.rs) and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for Windows.
+
+```sh
+npm install
+npm run tauri dev     # run with hot reload
+npm run tauri build   # installer in src-tauri/target/release/bundle
+```
 
 ## Contributing
 

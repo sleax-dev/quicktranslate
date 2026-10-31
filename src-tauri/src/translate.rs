@@ -1,5 +1,6 @@
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 use std::time::Duration;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -43,7 +44,9 @@ struct OpenRouterMessage {
     content: String,
 }
 
-pub fn translate_text_sync(
+static CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
+
+pub fn translate_text(
     text: &str,
     source_lang: &str,
     target_lang: &str,
@@ -56,62 +59,43 @@ pub fn translate_text_sync(
     }
 
     match api_provider {
-        "deepL" => translate_deepL(text, source_lang, target_lang, api_key, translation_type),
+        "deepL" => translate_deepl(text, source_lang, target_lang, api_key, translation_type),
         "openrouter" => translate_openrouter(text, source_lang, target_lang, api_key, translation_type),
         _ => translate_mymemory(text, source_lang, target_lang),
     }
 }
 
-fn translate_mymemory(
-    text: &str,
-    source_lang: &str,
-    target_lang: &str,
-) -> Result<String, String> {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let source = if source_lang == "auto" || source_lang.is_empty() {
-        "autodetect".to_string()
-    } else {
-        source_lang.to_string()
-    };
-
-    let lang_pair = format!("{}|{}", source, target_lang);
-    let encoded_text = urlencoding::encode(text);
-    let url = format!(
-        "https://api.mymemory.translated.net/get?q={}&langpair={}",
-        encoded_text, lang_pair
-    );
-
-    let response = client
-        .get(&url)
+/// Sends the request and returns the body, or an error with the status and body.
+fn send(request: RequestBuilder, timeout_secs: u64, provider: &str) -> Result<String, String> {
+    let response = request
+        .timeout(Duration::from_secs(timeout_secs))
         .send()
-        .map_err(|e| format!("İstek hatası: {}", e))?;
-
+        .map_err(|e| format!("{provider} istek hatası: {e}"))?;
     let status = response.status();
     let body = response.text().unwrap_or_default();
-
     if !status.is_success() {
-        return Err(format!("API hatası ({}): {}", status, body));
+        return Err(format!("{provider} API hatası ({status}): {body}"));
     }
-
-    if body.contains("\"responseStatus\"") {
-        let result: MyMemoryResponse = serde_json::from_str(&body)
-            .map_err(|e| format!("JSON parse hatası: {} - Body: {}", e, body))?;
-
-        if result.response_status != 200 {
-            return Err(format!("Çeviri API hatası ({}): {:?}", result.response_status, result.response_details));
-        }
-
-        Ok(result.response_data.translated_text)
-    } else {
-        Err(format!("Geçersiz API yanıtı: {}", body))
-    }
+    Ok(body)
 }
 
-fn translate_deepL(
+fn translate_mymemory(text: &str, source_lang: &str, target_lang: &str) -> Result<String, String> {
+    let source = if source_lang == "auto" || source_lang.is_empty() { "autodetect" } else { source_lang };
+    let lang_pair = format!("{source}|{target_lang}");
+    let request = CLIENT
+        .get("https://api.mymemory.translated.net/get")
+        .query(&[("q", text), ("langpair", lang_pair.as_str())]);
+    let body = send(request, 15, "MyMemory")?;
+
+    let result: MyMemoryResponse =
+        serde_json::from_str(&body).map_err(|e| format!("Geçersiz API yanıtı: {e} - {body}"))?;
+    if result.response_status != 200 {
+        return Err(format!("Çeviri API hatası ({}): {:?}", result.response_status, result.response_details));
+    }
+    Ok(result.response_data.translated_text)
+}
+
+fn translate_deepl(
     text: &str,
     source_lang: &str,
     target_lang: &str,
@@ -122,47 +106,32 @@ fn translate_deepL(
         return Err("DeepL API anahtarı gerekli".to_string());
     }
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let target = if target_lang == "en" {
-        "EN-US".to_string()
+    // Free-plan keys end in ":fx" and use their own host.
+    let url = if api_key.ends_with(":fx") {
+        "https://api-free.deepl.com/v2/translate"
     } else {
-        target_lang.to_uppercase()
+        "https://api.deepl.com/v2/translate"
     };
-
+    // DeepL wants a regional variant for English and Portuguese targets.
+    let target = match target_lang {
+        "en" => "EN-US".to_string(),
+        "pt" => "PT-BR".to_string(),
+        other => other.to_uppercase(),
+    };
     let formality = if translation_type == "formal" { "prefer_more" } else { "prefer_less" };
 
-    let params = [
-        ("text", text),
-        ("source_lang", source_lang),
-        ("target_lang", &target),
-        ("formality", formality),
-    ];
-
-    let response = client
-        .post("https://api-free.deepl.com/v2/translate")
-        .header("Authorization", format!("DeepL-Auth-Key {}", api_key))
-        .form(&params)
-        .send()
-        .map_err(|e| format!("DeepL istek hatası: {}", e))?;
-
-    let status = response.status();
-    let body = response.text().unwrap_or_default();
-
-    if !status.is_success() {
-        return Err(format!("DeepL API hatası ({}): {}", status, body));
+    let mut params = vec![("text", text.to_string()), ("target_lang", target), ("formality", formality.to_string())];
+    // Leaving source_lang out lets DeepL detect it; "auto" is not a value it accepts.
+    if source_lang != "auto" && !source_lang.is_empty() {
+        params.push(("source_lang", source_lang.to_uppercase()));
     }
 
-    let result: DeepLResponse = serde_json::from_str(&body)
-        .map_err(|e| format!("DeepL JSON parse hatası: {} - Body: {}", e, body))?;
+    let request = CLIENT.post(url).header("Authorization", format!("DeepL-Auth-Key {api_key}")).form(&params);
+    let body = send(request, 20, "DeepL")?;
 
-    result.translations
-        .first()
-        .map(|t| t.text.clone())
-        .ok_or_else(|| "DeepL yanıtı boş".to_string())
+    let result: DeepLResponse =
+        serde_json::from_str(&body).map_err(|e| format!("DeepL JSON parse hatası: {e} - Body: {body}"))?;
+    result.translations.into_iter().next().map(|t| t.text).ok_or_else(|| "DeepL yanıtı boş".to_string())
 }
 
 fn translate_openrouter(
@@ -176,53 +145,37 @@ fn translate_openrouter(
         return Err("OpenRouter API anahtarı gerekli".to_string());
     }
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|e| e.to_string())?;
-
     let style_instruction = if translation_type == "formal" {
         "Use formal, professional language suitable for business correspondence."
     } else {
         "Use casual, conversational language suitable for everyday communication."
     };
-
-    let source_name = lang_code_to_name(source_lang);
-    let target_name = lang_code_to_name(target_lang);
-
     let prompt = format!(
-        "Translate the following text from {} to {}. {}\n\nText to translate:\n{}",
-        source_name, target_name, style_instruction, text
+        "Translate the following text from {} to {}. {}\nReply with the translation only: no quotes, notes or explanations.\n\nText to translate:\n{}",
+        lang_code_to_name(source_lang),
+        lang_code_to_name(target_lang),
+        style_instruction,
+        text
     );
-
     let request_body = serde_json::json!({
-        "model": "openai/gpt-3.5-turbo",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
+        // OpenRouter picks a suitable current model, so this never points at a retired one.
+        "model": "openrouter/auto",
+        "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 2000
     });
 
-    let response = client
+    let request = CLIENT
         .post("https://openrouter.ai/api/v1/chat/completions")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .map_err(|e| format!("OpenRouter istek hatası: {}", e))?;
+        .header("Authorization", format!("Bearer {api_key}"))
+        .json(&request_body);
+    let body = send(request, 30, "OpenRouter")?;
 
-    let status = response.status();
-    let body = response.text().unwrap_or_default();
-
-    if !status.is_success() {
-        return Err(format!("OpenRouter API hatası ({}): {}", status, body));
-    }
-
-    let result: OpenRouterResponse = serde_json::from_str(&body)
-        .map_err(|e| format!("OpenRouter JSON parse hatası: {} - Body: {}", e, body))?;
-
-    result.choices
-        .first()
+    let result: OpenRouterResponse =
+        serde_json::from_str(&body).map_err(|e| format!("OpenRouter JSON parse hatası: {e} - Body: {body}"))?;
+    result
+        .choices
+        .into_iter()
+        .next()
         .map(|c| c.message.content.trim().to_string())
         .ok_or_else(|| "OpenRouter yanıtı boş".to_string())
 }
@@ -256,23 +209,5 @@ fn lang_code_to_name(code: &str) -> &str {
         "id" => "Indonesian",
         "ms" => "Malay",
         _ => code,
-    }
-}
-
-mod urlencoding {
-    pub fn encode(input: &str) -> String {
-        let mut encoded = String::new();
-        for byte in input.bytes() {
-            match byte {
-                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                    encoded.push(byte as char);
-                }
-                b' ' => encoded.push_str("%20"),
-                _ => {
-                    encoded.push_str(&format!("%{:02X}", byte));
-                }
-            }
-        }
-        encoded
     }
 }
