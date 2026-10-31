@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { getVersion } from '@tauri-apps/api/app';
-import { langName, t } from '../i18n';
+import { langName, os, t } from '../i18n';
 import { languages, save, saveError, savedCount, settings } from '../store';
 import Icon from '../components/Icon.vue';
 import Keys from '../components/Keys.vue';
@@ -32,7 +32,8 @@ async function record(e: KeyboardEvent) {
     return;
   }
   if (MODIFIERS.some((m) => e.code.startsWith(m))) return;
-  if (!e.ctrlKey && !e.altKey && !(e.shiftKey && /^F\d+$/.test(e.code))) {
+  const cmd = os === 'macos' && e.metaKey; // ⌘ is a hotkey modifier on macOS only; Windows keeps Win for itself
+  if (!e.ctrlKey && !e.altKey && !cmd && !(e.shiftKey && /^F\d+$/.test(e.code))) {
     hotkeyError.value = t('settings.needModifier');
     return;
   }
@@ -40,6 +41,7 @@ async function record(e: KeyboardEvent) {
   if (e.ctrlKey) parts.push('Ctrl');
   if (e.altKey) parts.push('Alt');
   if (e.shiftKey) parts.push('Shift');
+  if (cmd) parts.push('Cmd');
   parts.push(e.code.replace(/^(Key|Digit)/, ''));
   recording.value = false;
   s.hotkey = parts.join('+');

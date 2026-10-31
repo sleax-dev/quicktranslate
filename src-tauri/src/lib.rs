@@ -25,7 +25,7 @@ use translate::Translation;
 
 const TRAY_ID: &str = "main";
 
-/// Set at startup: Mica only exists on Windows 11; on 10 the UI falls back to a solid background.
+/// Set at startup: Mica only exists on Windows 11; on Windows 10, macOS and Linux the UI uses a solid background.
 static MICA: AtomicBool = AtomicBool::new(false);
 
 #[tauri::command]
@@ -149,7 +149,7 @@ fn bind_hotkey(app: &AppHandle, hotkey: &str) -> Result<(), String> {
         })
 }
 
-/// A Windows notification: the window is usually hidden when the hotkey is used.
+/// A system notification: the window is usually hidden when the hotkey is used.
 fn notify(app: &AppHandle, body: &str) {
     let _ = app
         .notification()
@@ -183,11 +183,18 @@ fn wait(ms: u64) {
     std::thread::sleep(Duration::from_millis(ms));
 }
 
-/// Sends Ctrl+`key`.
+/// The modifier of the copy/paste/select-all shortcuts: Cmd on macOS, Ctrl elsewhere.
+const SHORTCUT_MOD: Key = if cfg!(target_os = "macos") {
+    Key::Meta
+} else {
+    Key::Control
+};
+
+/// Sends Ctrl+`key` (Cmd+`key` on macOS).
 fn press_ctrl(enigo: &mut Enigo, key: char) {
-    let _ = enigo.key(Key::Control, Direction::Press);
+    let _ = enigo.key(SHORTCUT_MOD, Direction::Press);
     let _ = enigo.key(Key::Unicode(key), Direction::Click);
-    let _ = enigo.key(Key::Control, Direction::Release);
+    let _ = enigo.key(SHORTCUT_MOD, Direction::Release);
 }
 
 /// Copies with Ctrl+C (after Ctrl+A when `select_all`) and returns the text, or None when nothing was copied.
@@ -273,10 +280,19 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let quit_i = MenuItem::with_id(app, "quit", t("Çıkış", "Quit"), true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&open_i, &settings_i, &separator, &quit_i])?;
-    let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
+    // The macOS menu bar wants a monochrome template icon, which it tints for light and dark mode.
+    let (icon, template) = if cfg!(target_os = "macos") {
+        (
+            include_bytes!("../icons/tray-template.png").as_slice(),
+            true,
+        )
+    } else {
+        (include_bytes!("../icons/32x32.png").as_slice(), false)
+    };
 
     TrayIconBuilder::with_id(TRAY_ID)
-        .icon(icon)
+        .icon(Image::from_bytes(icon)?)
+        .icon_as_template(template)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -348,7 +364,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             setup_tray(&handle)?;
-            // A hotkey Windows refuses is reported, and the app still starts so it can be changed.
+            // A hotkey the system refuses is reported, and the app still starts so it can be changed.
             let hotkey = settings::current().hotkey;
             if let Err(e) = bind_hotkey(&handle, &hotkey) {
                 log::warn!("{e}");
@@ -356,9 +372,10 @@ pub fn run() {
             }
 
             if let Some(window) = app.get_webview_window("main") {
-                let mica = window
-                    .set_effects(EffectsBuilder::new().effect(Effect::Mica).build())
-                    .is_ok();
+                let mica = cfg!(windows)
+                    && window
+                        .set_effects(EffectsBuilder::new().effect(Effect::Mica).build())
+                        .is_ok();
                 MICA.store(mica, Ordering::Relaxed);
 
                 // The close button hides the window; the app keeps running in the tray.
@@ -376,6 +393,13 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            // macOS: clicking the Dock icon while the window is hidden brings it back.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                show_main_window(_app);
+            }
+        });
 }

@@ -69,11 +69,19 @@ pub fn replace(new_settings: Settings) -> Result<(), String> {
     Ok(())
 }
 
+/// %APPDATA%\QuickTranslate on Windows, ~/Library/Application Support/QuickTranslate on macOS,
+/// $XDG_CONFIG_HOME/QuickTranslate (~/.config) on Linux.
 fn get_settings_path() -> std::path::PathBuf {
-    let app_data = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
-    std::path::PathBuf::from(app_data)
-        .join("QuickTranslate")
-        .join("settings.json")
+    let var = |name| std::env::var_os(name).filter(|v| !v.is_empty());
+    let home = || std::path::PathBuf::from(var("HOME").unwrap_or_else(|| ".".into()));
+    let dir = if cfg!(windows) {
+        std::path::PathBuf::from(var("APPDATA").unwrap_or_else(|| ".".into()))
+    } else if cfg!(target_os = "macos") {
+        home().join("Library/Application Support")
+    } else {
+        var("XDG_CONFIG_HOME").map_or_else(|| home().join(".config"), Into::into)
+    };
+    dir.join("QuickTranslate").join("settings.json")
 }
 
 fn load_settings_from_file() -> Settings {

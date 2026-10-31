@@ -41,7 +41,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .small { font-size: 12px; }
 .grow { flex: 1; min-width: 0; }
 
-/* Mica shows through this tint; without Mica (Windows 10) it is opaque. */
+/* Mica shows through this tint; without Mica (Windows 10, macOS, Linux) it is opaque. */
 .app-bg { height: 100%; display: flex; flex-direction: column; background: radial-gradient(900px 500px at 85% -15%, rgba(111, 224, 195, 0.06), transparent 60%), var(--bg); }
 .app-bg.mica { background: radial-gradient(900px 500px at 85% -15%, rgba(111, 224, 195, 0.05), transparent 60%), rgba(11, 12, 13, 0.74); }
 
@@ -50,6 +50,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .titlebar .brand { display: flex; align-items: center; gap: 8px; pointer-events: none; }
 .titlebar .brand img { width: 16px; height: 16px; border-radius: 4px; }
 .titlebar .grow { align-self: stretch; }
+.titlebar.macos { padding-inline-start: 80px; } /* room for the traffic lights */
 .tb-btn { width: 46px; height: 32px; display: grid; place-items: center; border: 0; background: transparent; transition: background 0.12s; }
 .tb-btn:hover { background: rgba(255, 255, 255, 0.1); }
 .tb-btn:active { background: rgba(255, 255, 255, 0.06); }

@@ -147,8 +147,33 @@ const tr: Record<Key, string> = {
 /** The UI language, set from the Rust side at startup so it matches the tray and the errors. */
 export const uiLang = ref<'tr' | 'en'>(navigator.language.startsWith('tr') ? 'tr' : 'en');
 
+/** The platform the UI runs on: a few texts and the key symbols differ per platform. */
+export const os: 'windows' | 'macos' | 'linux' = /Mac/.test(navigator.userAgent)
+  ? 'macos'
+  : /Windows/.test(navigator.userAgent) ? 'windows' : 'linux';
+
+type Texts = Partial<Record<Key, string>>;
+const platformTexts: Partial<Record<typeof os, { en: Texts; tr: Texts }>> = {
+  macos: {
+    en: {
+      'settings.needModifier': 'Use ⌘, ⌃ or ⌥ with a key',
+      'settings.autostart': 'Open at login',
+      'settings.autostart.desc': 'Runs in the menu bar, ready for the hotkey.',
+    },
+    tr: {
+      'settings.needModifier': 'Bir tuşla birlikte ⌘, ⌃ ya da ⌥ kullanın',
+      'settings.autostart': 'Oturum açılınca başlat',
+      'settings.autostart.desc': 'Menü çubuğunda çalışır, kısayola hazır bekler.',
+    },
+  },
+  linux: {
+    en: { 'settings.autostart': 'Start at login' },
+    tr: { 'settings.autostart': 'Oturum açılınca başlat' },
+  },
+};
+
 export function t(key: Key, params: Record<string, string | number> = {}): string {
-  const text: string = (uiLang.value === 'tr' ? tr : en)[key];
+  const text: string = platformTexts[os]?.[uiLang.value]?.[key] ?? (uiLang.value === 'tr' ? tr : en)[key];
   return text.replace(/\{(\w+)\}/g, (_, name) => String(params[name] ?? `{${name}}`));
 }
 

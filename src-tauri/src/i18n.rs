@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-/// Whether Windows is set to Turkish. The tray menu, notifications and errors follow it, and so does the UI.
+/// Whether the system is set to Turkish. The tray menu, notifications and errors follow it, and so does the UI.
 pub static TURKISH: LazyLock<bool> = LazyLock::new(|| {
     #[cfg(target_os = "windows")]
     {
@@ -13,6 +13,24 @@ pub static TURKISH: LazyLock<bool> = LazyLock::new(|| {
             .output()
         {
             return String::from_utf8_lossy(&output.stdout).starts_with("tr");
+        }
+    }
+    #[cfg(target_os = "macos")]
+    if let Ok(output) = std::process::Command::new("defaults")
+        .args(["read", "-g", "AppleLanguages"])
+        .output()
+    {
+        // ( "tr-TR", "en-US" ): the first entry is the UI language.
+        let out = String::from_utf8_lossy(&output.stdout);
+        let first = out.trim_start_matches(|c: char| c == '(' || c == '"' || c.is_whitespace());
+        return first.starts_with("tr");
+    }
+    #[cfg(target_os = "linux")]
+    for var in ["LC_ALL", "LC_MESSAGES", "LANG"] {
+        if let Ok(value) = std::env::var(var)
+            && !value.is_empty()
+        {
+            return value.starts_with("tr");
         }
     }
     false

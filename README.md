@@ -1,14 +1,36 @@
-# QuickTranslate
+<p align="center">
+  <img src="src-tauri/icons/128x128@2x.png" width="128" height="128" alt="QuickTranslate logo">
+</p>
 
-Instant translation app - Translate selected text instantly with a global hotkey and replace it.
+<h1 align="center">QuickTranslate</h1>
 
-![QuickTranslate](https://img.shields.io/badge/Version-1.2.0-blue)
-![Platform](https://img.shields.io/badge/Platform-Windows-green)
-![License](https://img.shields.io/badge/License-MIT-purple)
+<p align="center">
+  Select text in any app, press a hotkey, and it is translated and replaced in place.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-1.3.0-blue" alt="Version 1.3.0">
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows&logoColor=white" alt="Windows 10 and 11">
+  <img src="https://img.shields.io/badge/macOS-10.15%2B%20Universal-000000?logo=apple&logoColor=white" alt="macOS 10.15+ Universal">
+  <img src="https://img.shields.io/badge/Linux-deb%20%7C%20rpm%20%7C%20AppImage-FCC624?logo=linux&logoColor=black" alt="Linux deb, rpm, AppImage">
+  <img src="https://img.shields.io/badge/license-MIT-purple" alt="MIT License">
+</p>
+
+## Download
+
+Each version is published as a separate release per platform. Pick yours on the [Releases](https://github.com/sleax-dev/quicktranslate/releases) page:
+
+| Platform | Release | File |
+|---|---|---|
+| **Windows** 10 / 11, 64-bit | [v1.3.0 for Windows](https://github.com/sleax-dev/quicktranslate/releases/tag/v1.3.0-windows) | `QuickTranslate_1.3.0_x64-setup.exe` |
+| **macOS** 10.15+, Apple Silicon and Intel | [v1.3.0 for macOS](https://github.com/sleax-dev/quicktranslate/releases/tag/v1.3.0-macos) | `QuickTranslate_1.3.0_universal.dmg` |
+| **Linux** x86_64 | [v1.3.0 for Linux](https://github.com/sleax-dev/quicktranslate/releases/tag/v1.3.0-linux) | `.deb`, `.rpm` or `.AppImage` |
+
+Versions up to 1.2.0 were released for Windows only.
 
 ## Features
 
-- 🌐 **Runs in System Tray** - Always running in the background
+- 🌐 **Runs in the tray / menu bar** - Always running in the background
 - ⌨️ **Global Hotkey** - Works in any application
 - 🔄 **Instant Translation & Replace** - Automatically translates and pastes selected text
 - ↔️ **Both directions with one hotkey** - Text already in the target language is translated back into your language
@@ -23,25 +45,43 @@ English, Turkish, German, French, Spanish, Italian, Portuguese, Russian, Ukraini
 
 ## Installation
 
-### Requirements
+### Windows
 
-- Windows 10/11
-- [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (usually pre-installed)
+1. Download `QuickTranslate_<version>_x64-setup.exe` from the [Windows release](https://github.com/sleax-dev/quicktranslate/releases/tag/v1.3.0-windows)
+2. Run it and follow the wizard (no admin rights needed); the app starts when it finishes
+3. The installer is not code-signed, so SmartScreen may warn on first run: **More info → Run anyway**
 
-### Steps
+Needs the [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/), which Windows 10/11 already have.
 
-1. Download the latest version from [Releases](https://github.com/sleax-dev/quicktranslate/releases)
-2. Run `QuickTranslate_<version>_x64-setup.exe`
-3. Follow the installation wizard
-4. The app will start automatically when installation is complete
+### macOS
+
+1. Download `QuickTranslate_<version>_universal.dmg` from the [macOS release](https://github.com/sleax-dev/quicktranslate/releases/tag/v1.3.0-macos), open it and drag **QuickTranslate** into **Applications**
+2. The app is not notarized, so macOS blocks the first launch: open it once, then **System Settings → Privacy & Security → Open Anyway**
+   (or run `xattr -cr /Applications/QuickTranslate.app` once in Terminal)
+3. Allow it to copy and paste for you: **System Settings → Privacy & Security → Accessibility → QuickTranslate on**, then restart the app
+
+One universal build runs natively on Apple Silicon (M1–M4) and Intel Macs.
+
+### Linux
+
+Download from the [Linux release](https://github.com/sleax-dev/quicktranslate/releases/tag/v1.3.0-linux):
+
+```sh
+sudo apt install ./QuickTranslate_1.3.0_amd64.deb          # Ubuntu, Debian, Mint, Pop!_OS
+sudo dnf install ./QuickTranslate-1.3.0-1.x86_64.rpm       # Fedora, openSUSE, RHEL
+chmod +x QuickTranslate_1.3.0_amd64.AppImage && ./QuickTranslate_1.3.0_amd64.AppImage   # any distribution
+```
+
+- **The hotkey needs an X11 session.** Wayland does not let apps register global hotkeys or send keystrokes; pick "Ubuntu on Xorg" / "Plasma (X11)" at login. The translate window works everywhere.
+- The tray icon needs a system tray: KDE, Cinnamon and Xfce have one; on GNOME use the *AppIndicator* extension (preinstalled on Ubuntu).
 
 ## Usage
 
 ### Translating Text
 
 1. Select the text you want to translate in any application, or just click into a text box to translate all of it
-2. Press `Ctrl+Shift+T`
-3. The translation replaces the text. If something goes wrong (no text, no connection), a Windows notification says why
+2. Press `Ctrl+Shift+T` (`⌃⇧T` on macOS)
+3. The translation replaces the text. If something goes wrong (no text, no connection), a notification says why
 
 **Source** is the language you write in (or "Detect language"), **Target** the one to translate into.
 With a source language set, text that is already in the target language goes the other way: with Turkish → English,
@@ -49,10 +89,12 @@ an English message is translated into Turkish.
 
 ### Settings
 
-Click the tray icon to open the window; changes are saved as you make them.
+Click the tray icon (the menu bar icon on macOS) to open the window; changes are saved as you make them.
 
 - **Service**: Google (free), DeepL or OpenRouter, their API keys, the translation style, and a Test button
-- **Settings**: the hotkey, the languages, and starting with Windows
+- **Settings**: the hotkey (on macOS ⌘ combinations work too), the languages, and starting at login
+
+Settings are stored in `%APPDATA%\QuickTranslate` on Windows, `~/Library/Application Support/QuickTranslate` on macOS and `~/.config/QuickTranslate` on Linux.
 
 ## API Services
 
@@ -72,19 +114,27 @@ Click the tray icon to open the window; changes are saved as you make them.
 
 ## System Requirements
 
-- Windows 10 or later
-- 50MB disk space
-- WebView2 Runtime
+| | Windows | macOS | Linux |
+|---|---|---|---|
+| OS | Windows 10 / 11, 64-bit | macOS 10.15 Catalina or later | x86_64, glibc 2.35+ (Ubuntu 22.04, Debian 12, Fedora 36 or newer) |
+| CPU | x64 | Apple Silicon or Intel | x86_64 |
+| Runtime | WebView2 (built in) | — | WebKitGTK 4.1, X11 session for the hotkey |
+| Disk | ~15 MB | ~20 MB | ~20 MB |
 
 ## Building from source
 
-Requires the current LTS version of [Node.js](https://nodejs.org), stable [Rust](https://rustup.rs) and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for Windows.
+Requires the current LTS version of [Node.js](https://nodejs.org), stable [Rust](https://rustup.rs) and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform.
+On Debian/Ubuntu: `sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev`.
 
 ```sh
 npm install
 npm run tauri dev     # run with hot reload
-npm run tauri build   # installer in src-tauri/target/release/bundle
+npm run tauri build   # installers in src-tauri/target/release/bundle
 ```
+
+`npm run tauri build` makes the packages of the platform it runs on: the NSIS installer on Windows, `.app` and `.dmg` on macOS
+(`-- --target universal-apple-darwin` for both architectures), `.deb`, `.rpm` and `.AppImage` on Linux.
+Pushing a `v*` tag builds all three on GitHub Actions and publishes one release per platform.
 
 ## Contributing
 
