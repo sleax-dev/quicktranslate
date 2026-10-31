@@ -14,11 +14,13 @@ jobs:
       - uses: actions/setup-node@v7
         with: { node-version: lts/* }
       - uses: dtolnay/rust-toolchain@v1
-        with: { toolchain: stable, components: clippy }
+        with: { toolchain: stable, components: "rustfmt, clippy" }
       - uses: Swatinem/rust-cache@v2
         with: { workspaces: src-tauri }
       - run: npm install
       - run: npm run build # type-check and bundle the UI
+      - run: cargo fmt --check
+        working-directory: src-tauri
       - run: cargo clippy --locked -- -D warnings
         working-directory: src-tauri
       - run: npx tauri build --no-bundle # compile and link the release exe

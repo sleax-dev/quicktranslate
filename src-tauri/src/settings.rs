@@ -27,7 +27,8 @@ impl Default for Settings {
     }
 }
 
-static SETTINGS: LazyLock<RwLock<Settings>> = LazyLock::new(|| RwLock::new(load_settings_from_file()));
+static SETTINGS: LazyLock<RwLock<Settings>> =
+    LazyLock::new(|| RwLock::new(load_settings_from_file()));
 
 /// A copy of the current settings.
 pub fn current() -> Settings {
@@ -43,7 +44,9 @@ pub fn replace(new_settings: Settings) -> Result<(), String> {
 
 fn get_settings_path() -> std::path::PathBuf {
     let app_data = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
-    std::path::PathBuf::from(app_data).join("QuickTranslate").join("settings.json")
+    std::path::PathBuf::from(app_data)
+        .join("QuickTranslate")
+        .join("settings.json")
 }
 
 fn load_settings_from_file() -> Settings {

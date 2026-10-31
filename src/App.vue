@@ -13,21 +13,6 @@ interface Settings {
   api_key: string;
 }
 
-const LANGUAGES = [
-  { code: 'en', name: 'English' },
-  { code: 'tr', name: 'Turkish' },
-  { code: 'de', name: 'German' },
-  { code: 'fr', name: 'French' },
-  { code: 'es', name: 'Spanish' },
-  { code: 'it', name: 'Italian' },
-  { code: 'pt', name: 'Portuguese' },
-  { code: 'ru', name: 'Russian' },
-  { code: 'ar', name: 'Arabic' },
-  { code: 'ja', name: 'Japanese' },
-  { code: 'ko', name: 'Korean' },
-  { code: 'zh', name: 'Chinese' },
-];
-
 const API_PROVIDERS = [
   { code: 'mymemory', name: 'MyMemory (Free)', needKey: false },
   { code: 'deepL', name: 'DeepL (API Key required)', needKey: true },
@@ -42,6 +27,8 @@ const TRANSLATION_TYPES = [
 const MODIFIER_KEYS = ['Control', 'Shift', 'Alt', 'Meta'];
 
 const settings = ref<Settings | null>(null);
+/** [code, name] pairs, from the Rust side so the list exists once. */
+const languages = ref<[string, string][]>([]);
 const saved = ref(false);
 const recordingHotkey = ref(false);
 const hotkeyError = ref('');
@@ -61,7 +48,10 @@ const problem = computed(() => {
 });
 
 onMounted(async () => {
-  settings.value = await invoke<Settings>('get_settings');
+  [settings.value, languages.value] = await Promise.all([
+    invoke<Settings>('get_settings'),
+    invoke<[string, string][]>('get_languages'),
+  ]);
 });
 
 const startRecording = () => {
@@ -128,7 +118,7 @@ const handleSave = async () => {
               class="field"
             >
               <option value="auto">Auto</option>
-              <option v-for="lang in LANGUAGES" :key="lang.code" :value="lang.code">{{ lang.name }}</option>
+              <option v-for="[code, name] in languages" :key="code" :value="code">{{ name }}</option>
             </select>
           </div>
 
@@ -138,7 +128,7 @@ const handleSave = async () => {
               v-model="settings.target_lang"
               class="field"
             >
-              <option v-for="lang in LANGUAGES" :key="lang.code" :value="lang.code">{{ lang.name }}</option>
+              <option v-for="[code, name] in languages" :key="code" :value="code">{{ name }}</option>
             </select>
           </div>
         </div>

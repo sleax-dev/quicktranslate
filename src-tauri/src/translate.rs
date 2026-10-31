@@ -60,7 +60,9 @@ pub fn translate_text(
 
     match api_provider {
         "deepL" => translate_deepl(text, source_lang, target_lang, api_key, translation_type),
-        "openrouter" => translate_openrouter(text, source_lang, target_lang, api_key, translation_type),
+        "openrouter" => {
+            translate_openrouter(text, source_lang, target_lang, api_key, translation_type)
+        }
         _ => translate_mymemory(text, source_lang, target_lang),
     }
 }
@@ -80,7 +82,11 @@ fn send(request: RequestBuilder, timeout_secs: u64, provider: &str) -> Result<St
 }
 
 fn translate_mymemory(text: &str, source_lang: &str, target_lang: &str) -> Result<String, String> {
-    let source = if source_lang == "auto" || source_lang.is_empty() { "autodetect" } else { source_lang };
+    let source = if source_lang == "auto" || source_lang.is_empty() {
+        "autodetect"
+    } else {
+        source_lang
+    };
     let lang_pair = format!("{source}|{target_lang}");
     let request = CLIENT
         .get("https://api.mymemory.translated.net/get")
@@ -90,9 +96,21 @@ fn translate_mymemory(text: &str, source_lang: &str, target_lang: &str) -> Resul
     let result: MyMemoryResponse =
         serde_json::from_str(&body).map_err(|e| format!("Geçersiz API yanıtı: {e} - {body}"))?;
     if result.response_status != 200 {
-        return Err(format!("Çeviri API hatası ({}): {:?}", result.response_status, result.response_details));
+        return Err(format!(
+            "Çeviri API hatası ({}): {:?}",
+            result.response_status, result.response_details
+        ));
     }
     Ok(result.response_data.translated_text)
+}
+
+/// DeepL's code for a language: upper case, and Norwegian is "NB" (Bokmål).
+fn deepl_code(code: &str) -> String {
+    if code == "no" {
+        "NB".to_string()
+    } else {
+        code.to_uppercase()
+    }
 }
 
 fn translate_deepl(
@@ -116,22 +134,38 @@ fn translate_deepl(
     let target = match target_lang {
         "en" => "EN-US".to_string(),
         "pt" => "PT-BR".to_string(),
-        other => other.to_uppercase(),
+        other => deepl_code(other),
     };
-    let formality = if translation_type == "formal" { "prefer_more" } else { "prefer_less" };
+    let formality = if translation_type == "formal" {
+        "prefer_more"
+    } else {
+        "prefer_less"
+    };
 
-    let mut params = vec![("text", text.to_string()), ("target_lang", target), ("formality", formality.to_string())];
+    let mut params = vec![
+        ("text", text.to_string()),
+        ("target_lang", target),
+        ("formality", formality.to_string()),
+    ];
     // Leaving source_lang out lets DeepL detect it; "auto" is not a value it accepts.
     if source_lang != "auto" && !source_lang.is_empty() {
-        params.push(("source_lang", source_lang.to_uppercase()));
+        params.push(("source_lang", deepl_code(source_lang)));
     }
 
-    let request = CLIENT.post(url).header("Authorization", format!("DeepL-Auth-Key {api_key}")).form(&params);
+    let request = CLIENT
+        .post(url)
+        .header("Authorization", format!("DeepL-Auth-Key {api_key}"))
+        .form(&params);
     let body = send(request, 20, "DeepL")?;
 
-    let result: DeepLResponse =
-        serde_json::from_str(&body).map_err(|e| format!("DeepL JSON parse hatası: {e} - Body: {body}"))?;
-    result.translations.into_iter().next().map(|t| t.text).ok_or_else(|| "DeepL yanıtı boş".to_string())
+    let result: DeepLResponse = serde_json::from_str(&body)
+        .map_err(|e| format!("DeepL JSON parse hatası: {e} - Body: {body}"))?;
+    result
+        .translations
+        .into_iter()
+        .next()
+        .map(|t| t.text)
+        .ok_or_else(|| "DeepL yanıtı boş".to_string())
 }
 
 fn translate_openrouter(
@@ -170,8 +204,8 @@ fn translate_openrouter(
         .json(&request_body);
     let body = send(request, 30, "OpenRouter")?;
 
-    let result: OpenRouterResponse =
-        serde_json::from_str(&body).map_err(|e| format!("OpenRouter JSON parse hatası: {e} - Body: {body}"))?;
+    let result: OpenRouterResponse = serde_json::from_str(&body)
+        .map_err(|e| format!("OpenRouter JSON parse hatası: {e} - Body: {body}"))?;
     result
         .choices
         .into_iter()
@@ -180,34 +214,41 @@ fn translate_openrouter(
         .ok_or_else(|| "OpenRouter yanıtı boş".to_string())
 }
 
+/// The languages offered in the settings: (code, English name). "auto" is a source option on top.
+pub const LANGUAGES: &[(&str, &str)] = &[
+    ("en", "English"),
+    ("tr", "Turkish"),
+    ("de", "German"),
+    ("fr", "French"),
+    ("es", "Spanish"),
+    ("it", "Italian"),
+    ("pt", "Portuguese"),
+    ("ru", "Russian"),
+    ("ar", "Arabic"),
+    ("ja", "Japanese"),
+    ("ko", "Korean"),
+    ("zh", "Chinese"),
+    ("hi", "Hindi"),
+    ("nl", "Dutch"),
+    ("pl", "Polish"),
+    ("sv", "Swedish"),
+    ("da", "Danish"),
+    ("no", "Norwegian"),
+    ("fi", "Finnish"),
+    ("el", "Greek"),
+    ("he", "Hebrew"),
+    ("th", "Thai"),
+    ("vi", "Vietnamese"),
+    ("id", "Indonesian"),
+    ("ms", "Malay"),
+];
+
 fn lang_code_to_name(code: &str) -> &str {
-    match code {
-        "auto" | "autodetect" => "the detected language",
-        "tr" => "Turkish",
-        "en" => "English",
-        "de" => "German",
-        "fr" => "French",
-        "es" => "Spanish",
-        "it" => "Italian",
-        "pt" => "Portuguese",
-        "ru" => "Russian",
-        "ar" => "Arabic",
-        "ja" => "Japanese",
-        "ko" => "Korean",
-        "zh" => "Chinese",
-        "hi" => "Hindi",
-        "nl" => "Dutch",
-        "pl" => "Polish",
-        "sv" => "Swedish",
-        "da" => "Danish",
-        "no" => "Norwegian",
-        "fi" => "Finnish",
-        "el" => "Greek",
-        "he" => "Hebrew",
-        "th" => "Thai",
-        "vi" => "Vietnamese",
-        "id" => "Indonesian",
-        "ms" => "Malay",
-        _ => code,
+    if code == "auto" || code == "autodetect" {
+        return "the detected language";
     }
+    LANGUAGES
+        .iter()
+        .find(|(c, _)| *c == code)
+        .map_or(code, |(_, name)| name)
 }

@@ -46,7 +46,9 @@ impl Translations {
             Language::Turkish => self.turkish(),
             Language::English => self.english(),
         };
-        tr.get(key).map(|s| s.to_string()).unwrap_or_else(|| key.to_string())
+        tr.get(key)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| key.to_string())
     }
 
     fn turkish(&self) -> HashMap<&str, &str> {

@@ -7,10 +7,10 @@ use i18n::Translations;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::{
+    AppHandle, Emitter, Manager, WindowEvent,
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -25,6 +25,11 @@ fn get_settings() -> settings::Settings {
 #[tauri::command]
 fn update_settings(new_settings: settings::Settings) -> Result<(), String> {
     settings::replace(new_settings)
+}
+
+#[tauri::command]
+fn get_languages() -> &'static [(&'static str, &'static str)] {
+    translate::LANGUAGES
 }
 
 #[tauri::command]
@@ -96,16 +101,28 @@ fn translate_and_replace(app: &AppHandle) -> Result<(), String> {
     press_ctrl('c');
     wait(200);
 
-    let text = app.clipboard().read_text().map_err(|e| format!("Clipboard okunamadı: {e}"))?;
+    let text = app
+        .clipboard()
+        .read_text()
+        .map_err(|e| format!("Clipboard okunamadı: {e}"))?;
     if text.trim().is_empty() {
         return Err("Çevrilecek metin bulunamadı".to_string());
     }
 
     let s = settings::current();
-    let translated = translate::translate_text(&text, &s.source_lang, &s.target_lang, &s.api_provider, &s.api_key, &s.translation_type)
-        .map_err(|e| format!("Çeviri hatası: {e}"))?;
+    let translated = translate::translate_text(
+        &text,
+        &s.source_lang,
+        &s.target_lang,
+        &s.api_provider,
+        &s.api_key,
+        &s.translation_type,
+    )
+    .map_err(|e| format!("Çeviri hatası: {e}"))?;
 
-    app.clipboard().write_text(&translated).map_err(|e| format!("Clipboard yazılamadı: {e}"))?;
+    app.clipboard()
+        .write_text(&translated)
+        .map_err(|e| format!("Clipboard yazılamadı: {e}"))?;
     wait(100);
     press_ctrl('a');
     wait(100);
@@ -141,7 +158,12 @@ fn setup_tray(app: &AppHandle, i18n: &Translations) -> Result<(), Box<dyn std::e
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
                 let app = tray.app_handle();
                 match app.get_webview_window("main") {
                     Some(window) if window.is_visible().unwrap_or(false) => {
@@ -158,15 +180,26 @@ fn setup_tray(app: &AppHandle, i18n: &Translations) -> Result<(), Box<dyn std::e
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec!["--minimized"]),
+        ))
         .plugin(
             tauri_plugin_log::Builder::new()
-                .targets([Target::new(TargetKind::Stdout), Target::new(TargetKind::LogDir { file_name: None })])
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::LogDir { file_name: None }),
+                ])
                 .build(),
         )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .invoke_handler(tauri::generate_handler![get_settings, update_settings, register_hotkey])
+        .invoke_handler(tauri::generate_handler![
+            get_settings,
+            update_settings,
+            get_languages,
+            register_hotkey
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
             setup_tray(&handle, &Translations::new())?;
