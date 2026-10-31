@@ -1,6 +1,6 @@
 {
   "name": "quicktranslate",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Instant translation app",
   "type": "module",
   "scripts": {
@@ -20,16 +20,13 @@
     "@fontsource-variable/inter": "^5.3.0",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-autostart": "^2.7.0",
-    "@tauri-apps/plugin-clipboard-manager": "^2.5.0",
-    "@tauri-apps/plugin-global-shortcut": "^2.4.1",
+    "@tauri-apps/plugin-opener": "^2.7.2",
     "vue": "^3.5.44"
   },
   "devDependencies": {
+    "@fluentui/svg-icons": "^1.1.345",
     "@tauri-apps/cli": "^2.12.4",
     "@vitejs/plugin-vue": "^6.0.10",
-    "autoprefixer": "^10.6.2",
-    "postcss": "^8.5.32",
-    "tailwindcss": "^3.4.19",
     "typescript": "^6.0.3",
     "vite": "^8.3.5",
     "vue-tsc": "^3.3.14"

@@ -2,7 +2,7 @@
 
 Instant translation app - Translate selected text instantly with a global hotkey and replace it.
 
-![QuickTranslate](https://img.shields.io/badge/Version-1.0.0-blue)
+![QuickTranslate](https://img.shields.io/badge/Version-1.2.0-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows-green)
 ![License](https://img.shields.io/badge/License-MIT-purple)
 
@@ -11,13 +11,15 @@ Instant translation app - Translate selected text instantly with a global hotkey
 - 🌐 **Runs in System Tray** - Always running in the background
 - ⌨️ **Global Hotkey** - Works in any application
 - 🔄 **Instant Translation & Replace** - Automatically translates and pastes selected text
-- 🌐 **Multi-Language Support** - Translate between 14+ languages
-- 📝 **Translation Style** - Formal or Casual options
-- 🔑 **Multiple API Support** - MyMemory (free), DeepL, OpenRouter
+- ↔️ **Both directions with one hotkey** - Text already in the target language is translated back into your language
+- 🪟 **Translate window** - Type or paste text, see the translation as you type; recent hotkey translations in History
+- 🌐 **30 languages** - Auto-detects the source language
+- 🆓 **Works without a key** - Google Translate by default, MyMemory as an automatic fallback; DeepL and OpenRouter with your own key
+- 📝 **Translation Style** - Formal or Casual (DeepL, OpenRouter)
 
 ## Supported Languages
 
-English, Turkish, German, French, Spanish, Italian, Portuguese, Russian, Arabic, Japanese, Korean, Chinese
+English, Turkish, German, French, Spanish, Italian, Portuguese, Russian, Ukrainian, Arabic, Japanese, Korean, Chinese, Hindi, Dutch, Polish, Czech, Romanian, Hungarian, Bulgarian, Greek, Swedish, Danish, Norwegian, Finnish, Hebrew, Thai, Vietnamese, Indonesian, Malay
 
 ## Installation
 
@@ -28,8 +30,8 @@ English, Turkish, German, French, Spanish, Italian, Portuguese, Russian, Arabic,
 
 ### Steps
 
-1. Download the latest version from [Releases](https://github.com/thesleax/quicktranslate/releases)
-2. Run `QuickTranslate_1.0.0_x64-setup.exe`
+1. Download the latest version from [Releases](https://github.com/sleax-dev/quicktranslate/releases)
+2. Run `QuickTranslate_<version>_x64-setup.exe`
 3. Follow the installation wizard
 4. The app will start automatically when installation is complete
 
@@ -37,27 +39,26 @@ English, Turkish, German, French, Spanish, Italian, Portuguese, Russian, Arabic,
 
 ### Translating Text
 
-1. Select the text you want to translate (in any application)
-2. Press `Ctrl+Shift+T` key combination
-3. The selected text is automatically translated and pasted
+1. Select the text you want to translate in any application, or just click into a text box to translate all of it
+2. Press `Ctrl+Shift+T`
+3. The translation replaces the text. If something goes wrong (no text, no connection), a Windows notification says why
+
+**Source** is the language you write in (or "Detect language"), **Target** the one to translate into.
+With a source language set, text that is already in the target language goes the other way: with Turkish → English,
+an English message is translated into Turkish.
 
 ### Settings
 
-Right-click the system tray icon and select "Settings":
+Click the tray icon to open the window; changes are saved as you make them.
 
-- **Source Language**: Select source language ("Auto" for automatic detection)
-- **Target Language**: Select target language
-- **Translation Style**: Formal (business) or Casual (everyday)
-- **Service**: Select translation service (MyMemory free, DeepL, or OpenRouter)
-- **API Key**: Enter API key if required for DeepL or OpenRouter
-- **Hotkey**: Change the global hotkey combination
-- **Auto Start**: Start automatically when Windows boots
+- **Service**: Google (free), DeepL or OpenRouter, their API keys, the translation style, and a Test button
+- **Settings**: the hotkey, the languages, and starting with Windows
 
 ## API Services
 
-### MyMemory (Free)
-- No API key required; the free tier allows about 5,000 characters a day
-- Quality: Good
+### Google Translate (default, free)
+- No API key. Uses the public endpoint behind Google's own translate widgets
+- If it is unreachable or rate-limited, MyMemory's machine translation steps in (no key, about 5,000 characters a day)
 
 ### DeepL
 - API key required (deepl.com/pro-api). Free and Pro keys both work
@@ -99,4 +100,4 @@ npm run tauri build   # installer in src-tauri/target/release/bundle
 
 ---
 
-**Note**: If you find a bug or have suggestions, please report them via [Issues](https://github.com/thesleax/quicktranslate/issues).
+**Note**: If you find a bug or have suggestions, please report them via [Issues](https://github.com/sleax-dev/quicktranslate/issues).

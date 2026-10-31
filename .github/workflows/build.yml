@@ -27,6 +27,8 @@ jobs:
         working-directory: src-tauri
       - run: cargo clippy --locked -- -D warnings
         working-directory: src-tauri
+      - run: cargo test --locked
+        working-directory: src-tauri
       - run: npx tauri build --no-bundle # compile and link the release exe
 
   release:
