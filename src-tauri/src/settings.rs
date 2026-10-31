@@ -2,12 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::sync::{LazyLock, RwLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)] // a field missing from an older settings file gets its default instead of resetting everything
 pub struct Settings {
     pub source_lang: String,
     pub target_lang: String,
     pub auto_start: bool,
     pub hotkey: String,
-    pub setup_completed: bool,
     pub translation_type: String, // "formal" | "casual"
     pub api_provider: String,     // "mymemory" | "deepL" | "openrouter"
     pub api_key: String,
@@ -20,7 +20,6 @@ impl Default for Settings {
             target_lang: "tr".to_string(),
             auto_start: false,
             hotkey: "Ctrl+Shift+T".to_string(),
-            setup_completed: false,
             translation_type: "casual".to_string(),
             api_provider: "mymemory".to_string(),
             api_key: String::new(),
