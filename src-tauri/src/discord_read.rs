@@ -114,7 +114,15 @@ pub fn start(app: &AppHandle) {
 /// Translates queued messages one at a time, so a busy channel never floods the translation service.
 fn translator(jobs: Receiver<Job>) {
     let mut queued = HashSet::new();
+    let mut languages = (String::new(), String::new());
     while let Ok((key, parts)) = jobs.recv() {
+        // The language settings changed: what was translated (or left alone) under the old ones is redone.
+        let now = (my_language(), settings::current().discord_incoming_lang);
+        if now != languages {
+            languages = now;
+            CACHE.lock().unwrap().clear();
+            queued.clear();
+        }
         if !queued.insert(key.clone()) || CACHE.lock().unwrap().contains_key(&key) {
             continue;
         }
@@ -142,6 +150,13 @@ fn translator(jobs: Receiver<Job>) {
 fn translate_parts(parts: &[String]) -> Result<Option<Vec<Option<String>>>, String> {
     let mine = my_language();
     let mut s = settings::current();
+    // A message counts when its language is the one chosen for incoming messages (or, with none chosen,
+    // any language but mine), and the service is sure of it: short, misspelled or slangy lines get guesses.
+    let wanted = |detected: Option<&str>, sure: bool| {
+        sure && detected != Some(mine.as_str())
+            && (s.discord_incoming_lang.is_empty()
+                || detected == Some(s.discord_incoming_lang.as_str()))
+    };
     s.source_lang = "auto".into();
     s.target_lang = mine.clone();
     let joined = parts
@@ -150,8 +165,7 @@ fn translate_parts(parts: &[String]) -> Result<Option<Vec<Option<String>>>, Stri
         .collect::<Vec<_>>()
         .join("\n");
     let r = translate::translate(&joined, &s)?;
-    // In my language already, or the service is only guessing (short, misspelled, slang): leave it.
-    if r.detected.as_deref() == Some(mine.as_str()) || !r.sure {
+    if !wanted(r.detected.as_deref(), r.sure) {
         return Ok(None);
     }
     let lines: Vec<String> = r
@@ -168,8 +182,14 @@ fn translate_parts(parts: &[String]) -> Result<Option<Vec<Option<String>>>, Stri
             .iter()
             .map(|p| {
                 if translatable(p) {
-                    // Unsure of the language: kept as written, which same_words() below leaves untranslated.
-                    translate::translate(p, &s).map(|r| if r.sure { r.text } else { p.clone() })
+                    // Not wanted: kept as written, which same_words() below leaves untranslated.
+                    translate::translate(p, &s).map(|r| {
+                        if wanted(r.detected.as_deref(), r.sure) {
+                            r.text
+                        } else {
+                            p.clone()
+                        }
+                    })
                 } else {
                     Ok(p.clone())
                 }

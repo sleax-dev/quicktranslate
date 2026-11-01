@@ -24,6 +24,8 @@ pub struct Settings {
     pub discord_send_lang: String,
     /// The language Discord messages are translated into for the user; "" for theirs (see discord_read).
     pub discord_read_lang: String,
+    /// Only messages in this language are translated in read mode; "" = any language but mine.
+    pub discord_incoming_lang: String,
     pub auto_update: bool,
     /// Counted in the live user count (stats.rs): a random id, nothing else.
     pub usage_stats: bool,
@@ -58,6 +60,7 @@ impl Default for Settings {
             discord_read: false,
             discord_send_lang: String::new(),
             discord_read_lang: String::new(),
+            discord_incoming_lang: String::new(),
             auto_update: true,
             usage_stats: true,
             accent: "#6fe0c3".to_string(),

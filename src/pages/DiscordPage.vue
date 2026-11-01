@@ -64,6 +64,16 @@ const named = computed(() => languages.value.map(([code, en]) => [code, langName
         </div>
         <div class="row">
           <div class="info">
+            <div class="name">{{ t('discord.incomingLang') }}</div>
+            <div class="desc">{{ t('discord.incomingLang.desc') }}</div>
+          </div>
+          <select v-model="s.discord_incoming_lang" class="select ctl" :aria-label="t('discord.incomingLang')">
+            <option value="">{{ t('discord.incomingLang.any') }}</option>
+            <option v-for="[code, name] in named" :key="code" :value="code">{{ name }}</option>
+          </select>
+        </div>
+        <div class="row">
+          <div class="info">
             <div class="name">{{ t('discord.readLang') }}</div>
             <div class="desc">{{ t('discord.readLang.desc') }}</div>
           </div>
