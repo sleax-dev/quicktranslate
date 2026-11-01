@@ -8,7 +8,7 @@
 //! The overlay lets every click through; hovering a message shows the original.
 
 use crate::discord::{discord_window, is_discord_window};
-use crate::discord_parse::{self, Message, Node};
+use crate::discord_parse::{self, Message, Node, Part};
 use crate::i18n::{self, Msg, msg};
 use crate::{notify, settings, translate};
 use serde::Serialize;
@@ -25,7 +25,11 @@ use uiautomation::types::{ControlType, Handle, TreeScope, UIProperty};
 use uiautomation::variants::Variant;
 use uiautomation::{UIAutomation, UIElement};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
-use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, GetDC, GetPixel, ReleaseDC};
+use windows_sys::Win32::Graphics::Gdi::{
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, ClientToScreen, CreateCompatibleBitmap,
+    CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, GetPixel,
+    ReleaseDC, SRCCOPY, SelectObject,
+};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClientRect, GetCursorPos, IsIconic, IsWindowVisible,
@@ -63,8 +67,17 @@ type Key = (String, String);
 /// A message to translate: its cache key and its text blocks.
 type Job = (Key, Vec<String>);
 static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(Mutex::default);
-/// Background colours sampled behind each message, by id.
-static COLOURS: LazyLock<Mutex<HashMap<String, (String, String)>>> = LazyLock::new(Mutex::default);
+/// How each text block is drawn, measured on screen the first time it is seen (see `measure`).
+#[derive(Clone)]
+struct Look {
+    bg: String,
+    fg: String,
+    /// Where its box ends: where the background behind the text ends (an embed's edge) or the room beside it.
+    right: i32,
+    /// Inside an embed or another box of its own colour, which Discord does not light up under the mouse.
+    boxed: bool,
+}
+static LOOKS: LazyLock<Mutex<HashMap<String, Look>>> = LazyLock::new(Mutex::default);
 /// The colour Discord lights each background colour up to under the mouse, learned the first time it is
 /// seen: from then on the overlay changes with Discord in the same frame, without sampling.
 static HOVER: LazyLock<Mutex<HashMap<String, (String, String)>>> = LazyLock::new(Mutex::default);
@@ -79,6 +92,17 @@ fn my_language() -> String {
         s.source_lang
     } else {
         i18n::lang().into()
+    }
+}
+
+/// The other side's language: "Their language" on the Discord page, the one messages are sent in too,
+/// or the main "To" language when that is left on its default.
+fn their_language() -> String {
+    let s = settings::current();
+    if s.discord_send_lang.is_empty() {
+        s.target_lang
+    } else {
+        s.discord_send_lang
     }
 }
 
@@ -117,7 +141,7 @@ fn translator(jobs: Receiver<Job>) {
     let mut languages = (String::new(), String::new());
     while let Ok((key, parts)) = jobs.recv() {
         // The language settings changed: what was translated (or left alone) under the old ones is redone.
-        let now = (my_language(), settings::current().discord_incoming_lang);
+        let now = (my_language(), their_language());
         if now != languages {
             languages = now;
             CACHE.lock().unwrap().clear();
@@ -148,14 +172,12 @@ fn translator(jobs: Receiver<Job>) {
 /// give back as many lines, each block is sent on its own. A block left (nearly) as it was gets none:
 /// it is in my language already, or a name or a link.
 fn translate_parts(parts: &[String]) -> Result<Option<Vec<Option<String>>>, String> {
-    let mine = my_language();
+    let (mine, theirs) = (my_language(), their_language());
     let mut s = settings::current();
-    // A message counts when its language is the one chosen for incoming messages (or, with none chosen,
-    // any language but mine), and the service is sure of it: short, misspelled or slangy lines get guesses.
+    // A message counts when it is in their language and the service is sure of that: short, misspelled
+    // or slangy lines get guesses.
     let wanted = |detected: Option<&str>, sure: bool| {
-        sure && detected != Some(mine.as_str())
-            && (s.discord_incoming_lang.is_empty()
-                || detected == Some(s.discord_incoming_lang.as_str()))
+        sure && theirs != mine && detected == Some(theirs.as_str())
     };
     s.source_lang = "auto".into();
     s.target_lang = mine.clone();
@@ -361,18 +383,21 @@ impl Reader {
                 if inside(part.rect) || self.popups.iter().any(|p| overlaps(*p, part.rect)) {
                     continue;
                 }
-                let (l, t, r, b) = part.rect;
-                // Elsewhere on the message Discord lights the row up: follow it.
-                let (bg, fg) = colours(&format!("{}:{i}", m.id), part.rect, m.row, hovered);
+                let (l, t, _, b) = part.rect;
+                // Measured once, on Discord's plain colour; not drawn until then.
+                let key = format!("{}:{i}:{t}:{}", m.id, part.end);
+                let Some(look) = look(&key, part, m.row, hovered) else {
+                    continue;
+                };
                 items.push(Item {
                     key: format!("{}:{i}:{t}", m.id),
                     x: l - origin.0,
                     y: t - origin.1,
-                    w: r - l,
+                    w: look.right - l,
                     h: b - t,
                     text: translation.clone(),
-                    bg,
-                    fg,
+                    bg: look.bg,
+                    fg: look.fg,
                 });
             }
         }
@@ -652,52 +677,120 @@ fn cursor() -> (i32, i32) {
     (p.x, p.y)
 }
 
-/// The colour behind the message and a text colour that reads on it. Sampled at the row's right edge,
-/// beside the translation box (so never the overlay's own paint), once per message. Under the mouse
-/// Discord shows the row lighter: that colour is learned the first time and reused from then on.
-fn colours(
-    key: &str,
-    rect: (i32, i32, i32, i32),
-    row: (i32, i32, i32, i32),
-    hovered: bool,
-) -> (String, String) {
-    let base = COLOURS.lock().unwrap().get(key).cloned();
-    if !hovered && let Some(c) = base {
-        return c;
+/// How a text block is drawn. Measured the first time it is seen with the mouse off its message: the
+/// colour right after the text is its background, and the box goes as far as that colour does, so a line
+/// inside an embed stops at the embed's edge. On a plain message Discord lights the row up under the mouse:
+/// that colour is learned once per background colour and reused, so the box changes in the same frame.
+fn look(key: &str, part: &Part, row: (i32, i32, i32, i32), hovered: bool) -> Option<Look> {
+    let known = LOOKS.lock().unwrap().get(key).cloned();
+    let Some(look) = known else {
+        if hovered {
+            return None; // measured on the plain colour only
+        }
+        let look = measure(part)?;
+        let mut looks = LOOKS.lock().unwrap();
+        if looks.len() > 4000 {
+            looks.clear();
+        }
+        looks.insert(key.to_string(), look.clone());
+        return Some(look);
+    };
+    if !hovered || look.boxed {
+        return Some(look);
     }
-    if hovered
-        && let Some(base) = &base
-        && let Some(c) = HOVER.lock().unwrap().get(&base.0)
-    {
-        return c.clone();
+    if let Some((bg, fg)) = HOVER.lock().unwrap().get(&look.bg).cloned() {
+        return Some(Look { bg, fg, ..look });
     }
-    let (_, t, _, b) = rect;
-    let x = row.2 - 6;
+    // Not learned yet: sample the lit row at its right edge, beside every box.
+    let (_, t, _, b) = part.rect;
     let samples: Vec<u32> = unsafe {
         let dc = GetDC(std::ptr::null_mut());
         let s = [t + 2, (t + b) / 2, b - 2]
             .into_iter()
-            .map(|y| GetPixel(dc, x, y))
+            .map(|y| GetPixel(dc, row.2 - 6, y))
             .collect();
         ReleaseDC(std::ptr::null_mut(), dc);
         s
     };
-    let result = describe(most_common(&samples));
-    match (hovered, base) {
-        (false, _) => {
-            let mut cache = COLOURS.lock().unwrap();
-            if cache.len() > 2000 {
-                cache.clear();
-            }
-            cache.insert(key.to_string(), result.clone());
-        }
-        // Until Discord has repainted, the sample is still the plain colour: learn only a real change.
-        (true, Some(base)) if base.0 != result.0 => {
-            HOVER.lock().unwrap().insert(base.0, result.clone());
-        }
-        _ => {}
+    let (bg, fg) = describe(most_common(&samples));
+    // Until Discord has repainted, the sample is still the plain colour: learn only a real change.
+    if bg != look.bg {
+        HOVER
+            .lock()
+            .unwrap()
+            .insert(look.bg.clone(), (bg.clone(), fg.clone()));
     }
-    result
+    Some(Look { bg, fg, ..look })
+}
+
+/// Reads the screen along the middle of a block, from just after its text to the room beside it.
+fn measure(part: &Part) -> Option<Look> {
+    let (_, t, room, b) = part.rect;
+    let x0 = part.end + 2;
+    let pixels = screen_row(x0, (room + 8).max(x0 + 12), (t + b) / 2)?;
+    // The first few pixels after the text (past any anti-aliasing) are its background.
+    let bg = most_common(&pixels[1..6]);
+    let differs = |p: u32| {
+        let ch = |c: u32, s: u32| ((c >> s) & 0xff) as i32;
+        (0..3)
+            .map(|i| (ch(p, i * 8) - ch(bg, i * 8)).abs())
+            .sum::<i32>()
+            > 18
+    };
+    let stop = pixels
+        .iter()
+        .position(|p| differs(*p))
+        .unwrap_or(pixels.len());
+    let right = (x0 + stop as i32 - 3).clamp(part.end + 1, room);
+    let (bg, fg) = describe(bg);
+    Some(Look {
+        bg,
+        fg,
+        right,
+        boxed: right < room - 8,
+    })
+}
+
+/// One row of screen pixels from x0 to x1 at y, as COLORREFs (0x00BBGGRR): one copy, not a call per pixel.
+fn screen_row(x0: i32, x1: i32, y: i32) -> Option<Vec<u32>> {
+    let w = x1 - x0;
+    if w < 8 {
+        return None;
+    }
+    unsafe {
+        let screen = GetDC(std::ptr::null_mut());
+        let mem = CreateCompatibleDC(screen);
+        let bitmap = CreateCompatibleBitmap(screen, w, 1);
+        let old = SelectObject(mem, bitmap);
+        let copied = BitBlt(mem, 0, 0, w, 1, screen, x0, y, SRCCOPY) != 0;
+        let mut info: BITMAPINFO = std::mem::zeroed();
+        info.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        info.bmiHeader.biWidth = w;
+        info.bmiHeader.biHeight = -1; // top-down
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        info.bmiHeader.biCompression = BI_RGB;
+        let mut bgra = vec![0u32; w as usize];
+        let lines = GetDIBits(
+            mem,
+            bitmap,
+            0,
+            1,
+            bgra.as_mut_ptr().cast(),
+            &mut info,
+            DIB_RGB_COLORS,
+        );
+        SelectObject(mem, old);
+        DeleteObject(bitmap);
+        DeleteDC(mem);
+        ReleaseDC(std::ptr::null_mut(), screen);
+        // 0x00RRGGBB in memory order → COLORREF 0x00BBGGRR
+        (copied && lines == 1).then(|| {
+            bgra.iter()
+                .map(|p| ((p >> 16) & 0xff) | (p & 0xff00) | ((p & 0xff) << 16))
+                .collect()
+        })
+    }
 }
 
 fn most_common(samples: &[u32]) -> u32 {

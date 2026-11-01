@@ -19,7 +19,6 @@ export interface Settings {
   protected_words: string[];
   discord_send_lang: string;
   discord_read_lang: string;
-  discord_incoming_lang: string;
   accent: string;
   bg_blur: boolean;
   bg_dim: number;

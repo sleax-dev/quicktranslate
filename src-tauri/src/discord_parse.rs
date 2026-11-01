@@ -32,7 +32,10 @@ pub struct Message {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Part {
     pub text: String,
+    /// Where the translation may go: from the text's left edge to the room beside it.
     pub rect: (i32, i32, i32, i32),
+    /// Where the original text ends: the background is measured from here.
+    pub end: i32,
 }
 
 impl Message {
@@ -219,36 +222,90 @@ fn message(item: &Node, id: String, clip: (i32, i32, i32, i32)) -> Option<Messag
             .fold(article.rect.2 - 16, i32::min)
             .max(r.2)
     };
-    let part = |n: &Node| {
-        // A follow-up message can carry its (hover-only) time inside its first line: left out.
-        let text = without_emoji_names(&without_time(n));
+    // Only blocks wholly on screen: a half-hidden one would be drawn over Discord's own bars.
+    let shown = |r: (i32, i32, i32, i32)| {
+        r.1 >= clip.1 && r.3 <= clip.3 && r.0 >= clip.0 && r.2 <= clip.2.saturating_add(16)
+    };
+    let make = |text: String, rect: (i32, i32, i32, i32)| {
         // Screen readers get ", " between pieces; a block never ends in one.
-        let text = text
+        let text = without_emoji_names(&text)
             .trim_end_matches(|c: char| c == ',' || c.is_whitespace())
             .to_string();
-        let rect = rect_without_time(n)?;
-        // Only blocks wholly on screen: a half-hidden one would be drawn over Discord's own bars.
-        let shown = rect.1 >= clip.1
-            && rect.3 <= clip.3
-            && rect.0 >= clip.0
-            && rect.2 <= clip.2.saturating_add(16);
-        (shown && !text.is_empty()).then(|| Part {
+        (shown(rect) && !text.is_empty()).then(|| Part {
             text,
             rect: (rect.0, rect.1, room(rect), rect.3),
+            end: rect.2,
         })
     };
+    // A follow-up message can carry its (hover-only) time inside its first line: left out.
+    let part = |n: &Node| make(without_time(n), rect_without_time(n)?);
     let only_text = |n: &Node| {
         !n.any(&|d: &Node| matches!(d.kind.as_str(), "Button" | "Image" | "Hyperlink" | "List"))
     };
+    // Inline pieces of one line: text runs (bold, code and plain text are separate runs), custom emoji
+    // and @mentions. They are joined into one sentence, so it is translated as a whole.
+    let emoji = |n: &Node| {
+        n.kind == "Button" && n.name.len() > 2 && n.name.starts_with(':') && n.name.ends_with(':')
+    };
+    let mention =
+        |n: &Node| n.kind == "Button" && (n.name.starts_with('@') || n.name.starts_with('#'));
+    let same_line = |a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)| {
+        a.3.min(b.3) - a.1.max(b.1) > (a.3 - a.1).min(b.3 - b.1) / 2
+    };
+    // Left of the text column sit the avatar and, on a follow-up message, its hover-only date.
+    let content_left = article.rect.0 + 64;
     let mut parts = Vec::new();
+    let mut line: Vec<&Node> = Vec::new();
+    let flush = |line: &mut Vec<&Node>, parts: &mut Vec<Part>| {
+        // Emoji leading the line stay visible: the box starts at the first word.
+        let start = line.iter().position(|n| !emoji(n)).unwrap_or(line.len());
+        let pieces = &line[start..];
+        let text: String = pieces
+            .iter()
+            .map(|n| {
+                // As written, spaces included: the runs carry the spaces between them.
+                if n.kind == "Text" && !n.any(&is_time) && !n.name.is_empty() {
+                    n.name.clone()
+                } else if n.kind == "Text" {
+                    format!(" {} ", without_time(n))
+                } else {
+                    n.name.clone()
+                }
+            })
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let rect = pieces
+            .iter()
+            .filter_map(|n| rect_without_time(n))
+            .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)));
+        if let Some(rect) = rect {
+            parts.extend(make(text, rect));
+        }
+        line.clear();
+    };
     for c in blocks.iter().filter(|c| c.rect.1 >= below - 4) {
-        match c.kind.as_str() {
-            // The label beside a spoiler's button only names the button.
-            "Text"
-                if blocks
+        let inline = match c.kind.as_str() {
+            // The label beside a spoiler's button only names the button; text left of the column is the
+            // hover date of a follow-up message.
+            "Text" => {
+                !blocks
                     .iter()
-                    .any(|b| b.kind == "Button" && b.name == c.name) => {}
-            "Text" => parts.extend(part(c)),
+                    .any(|b| b.kind == "Button" && b.name == c.name)
+                    && rect_without_time(c).is_some_and(|r| r.0 >= content_left)
+            }
+            _ => emoji(c) || mention(c),
+        };
+        if inline {
+            if line.last().is_some_and(|l| !same_line(l.rect, c.rect)) {
+                flush(&mut line, &mut parts);
+            }
+            line.push(c);
+            continue;
+        }
+        flush(&mut line, &mut parts);
+        match c.kind.as_str() {
             // A bulleted or numbered list: one block per item.
             "List" => parts.extend(
                 c.children
@@ -261,6 +318,7 @@ fn message(item: &Node, id: String, clip: (i32, i32, i32, i32)) -> Option<Messag
             _ => {}
         }
     }
+    flush(&mut line, &mut parts);
     (!parts.is_empty()).then_some(Message {
         id,
         parts,
@@ -389,11 +447,13 @@ Some(Window) id="" name="#general | Server - Discord" rect=Some((-8, -8, 1928, 1
       Some(Edit) id="" name="Message #general" rect=Some((412, 967, 1442, 1023))
 "##;
 
-    fn part(text: &str, rect: (i32, i32, i32, i32)) -> Part {
-        Part {
-            text: text.into(),
-            rect,
-        }
+    /// A part as the tests write it; `end` is checked separately.
+    fn part(text: &str, rect: (i32, i32, i32, i32)) -> (String, (i32, i32, i32, i32)) {
+        (text.into(), rect)
+    }
+
+    fn parts(m: &Message) -> Vec<(String, (i32, i32, i32, i32))> {
+        m.parts.iter().map(|p| (p.text.clone(), p.rect)).collect()
     }
 
     #[test]
@@ -418,7 +478,7 @@ Some(ListItem) id="chat-messages-1-2" name="" rect=Some((340, 100, 1639, 600))
 "##;
         let (found, _) = messages(&parse(report));
         assert_eq!(
-            found[0].parts,
+            parts(&found[0]),
             [
                 part("Stalkly Beta is live", (412, 126, 1623, 160)),
                 part("What's inside", (412, 180, 1623, 200)),
@@ -430,27 +490,73 @@ Some(ListItem) id="chat-messages-1-2" name="" rect=Some((340, 100, 1639, 600))
     }
 
     #[test]
+    fn inline_runs_become_one_line() {
+        let report = r##"
+Some(ListItem) id="chat-messages-1-9" name="" rect=Some((340, 257, 1639, 434))
+  Some(Group) id="" name="" rect=Some((340, 257, 1639, 434))
+    Some(Group) id="" name="" rect=Some((370, 263, 396, 277))
+      Some(Text) id="message-timestamp-9" name="" rect=Some((370, 263, 396, 277))
+        Some(Text) id="" name="13:35" rect=Some((370, 263, 396, 277))
+    Some(Text) id="" name="1 Kasım 2026 Pazar 13:35" rect=Some((396, 263, 515, 277))
+    Some(Button) id="" name=":premium:" rect=Some((429, 278, 449, 298))
+      Some(Image) id="" name=":premium:" rect=Some((429, 278, 449, 298))
+    Some(Text) id="" name=" Subscription Renewed!" rect=Some((448, 278, 595, 296))
+    Some(Text) id="" name=" " rect=Some((0, 0, 0, 0))
+    Some(Button) id="" name="@I'm AWS" rect=Some((429, 297, 495, 316))
+    Some(Text) id="" name=" renewed their " rect=Some((494, 297, 584, 316))
+    Some(Text) id="" name="Beatra Ultra Custom Bot" rect=Some((583, 297, 736, 316))
+    Some(Text) id="" name="! (ID: 1221988416032473137)  " rect=Some((735, 297, 901, 316))
+    Some(Button) id="" name=":id:" rect=Some((429, 335, 449, 355))
+    Some(Text) id="" name=" User:" rect=Some((448, 335, 485, 354))
+    Some(Text) id="" name=" (1221988416032473137) " rect=Some((552, 335, 696, 354))
+    Some(Text) id="" name="Thank you for continuing to support us!" rect=Some((429, 393, 663, 412))
+    Some(Text) id="" name="," rect=Some((429, 275, 433, 296))
+"##;
+        let (found, _) = messages(&parse(report));
+        assert_eq!(
+            parts(&found[0]),
+            [
+                part("Subscription Renewed!", (448, 278, 1623, 296)),
+                part(
+                    "@I'm AWS renewed their Beatra Ultra Custom Bot! (ID: 1221988416032473137)",
+                    (429, 297, 1623, 316)
+                ),
+                part("User: (1221988416032473137)", (448, 335, 1623, 354)),
+                part(
+                    "Thank you for continuing to support us!",
+                    (429, 393, 1623, 412)
+                ),
+            ]
+        );
+        assert_eq!(found[0].parts[1].end, 901);
+    }
+
+    #[test]
     fn finds_messages_in_a_real_tree() {
         let (found, list) = messages(&parse(REPORT));
+        let got: Vec<_> = found
+            .iter()
+            .map(|m| (m.id.as_str(), parts(m), m.row))
+            .collect();
         assert_eq!(
-            found,
+            got,
             [
-                Message {
-                    id: "15662".into(),
-                    parts: vec![part("Hello there", (412, 918, 1623, 939))],
-                    row: (340, 894, 1639, 942)
-                },
-                Message {
-                    id: "15663".into(),
-                    parts: vec![part("Wie geht's?", (412, 943, 1623, 964))],
-                    row: (340, 942, 1639, 966)
-                },
+                (
+                    "15662",
+                    vec![part("Hello there", (412, 918, 1623, 939))],
+                    (340, 894, 1639, 942)
+                ),
+                (
+                    "15663",
+                    vec![part("Wie geht's?", (412, 943, 1623, 964))],
+                    (340, 942, 1639, 966)
+                ),
                 // A follow-up whose time sits inside its line.
-                Message {
-                    id: "15665".into(),
-                    parts: vec![part("Und dir", (412, 967, 1623, 989))],
-                    row: (340, 966, 1639, 990)
-                },
+                (
+                    "15665",
+                    vec![part("Und dir", (412, 967, 1623, 989))],
+                    (340, 966, 1639, 990)
+                ),
             ]
         );
         // Window > Pane > Document > channel group (index 1) > the list.
