@@ -213,11 +213,15 @@ impl Reader {
                 Some(None) => {}
                 Some(Some(translation)) => {
                     let (l, t, r, b) = m.rect;
-                    // Under the mouse: show the original.
-                    if (l..r).contains(&cursor.0) && (t..b).contains(&cursor.1) {
+                    let inside = |(l, t, r, b): (i32, i32, i32, i32)| {
+                        (l..r).contains(&cursor.0) && (t..b).contains(&cursor.1)
+                    };
+                    // On the text: show the original.
+                    if inside(m.rect) {
                         continue;
                     }
-                    let (bg, fg) = colours(&m);
+                    // Elsewhere on the message Discord lights the row up: follow it.
+                    let (bg, fg) = colours(&m, inside(m.row));
                     items.push(Item {
                         key: format!("{}:{t}", m.id),
                         x: l - origin.0,
@@ -391,29 +395,32 @@ fn cursor() -> (i32, i32) {
     (p.x, p.y)
 }
 
-/// The colour behind the message (sampled once per message along its right edge, where text rarely
-/// reaches) and a text colour that reads on it.
-fn colours(m: &Message) -> (String, String) {
+/// The colour behind the message and a text colour that reads on it. Sampled at the row's right edge,
+/// beside the translation box (so never the overlay's own paint): once per message, and on every pass while
+/// the mouse is over it, when Discord shows the row lighter.
+fn colours(m: &Message, hovered: bool) -> (String, String) {
     let mut cache = COLOURS.lock().unwrap();
-    if let Some(c) = cache.get(&m.id) {
+    if !hovered && let Some(c) = cache.get(&m.id) {
         return c.clone();
     }
-    let (_, t, r, b) = m.rect;
+    let (_, t, _, b) = m.rect;
+    let x = m.row.2 - 6;
     let samples: Vec<u32> = unsafe {
         let dc = GetDC(std::ptr::null_mut());
         let s = [t + 2, (t + b) / 2, b - 2]
             .into_iter()
-            .map(|y| GetPixel(dc, r - 3, y))
+            .map(|y| GetPixel(dc, x, y))
             .collect();
         ReleaseDC(std::ptr::null_mut(), dc);
         s
     };
-    let colour = most_common(&samples);
-    let result = describe(colour);
-    if cache.len() > 2000 {
-        cache.clear();
+    let result = describe(most_common(&samples));
+    if !hovered {
+        if cache.len() > 2000 {
+            cache.clear();
+        }
+        cache.insert(m.id.clone(), result.clone());
     }
-    cache.insert(m.id.clone(), result.clone());
     result
 }
 

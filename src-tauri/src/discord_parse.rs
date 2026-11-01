@@ -19,12 +19,14 @@ pub struct Node {
     pub children: Vec<Node>,
 }
 
-/// A message on screen: its text and where the text is.
+/// A message on screen: its text, where the text is, and the whole message row (which Discord lights up
+/// under the mouse).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Message {
     pub id: String,
     pub text: String,
     pub rect: (i32, i32, i32, i32),
+    pub row: (i32, i32, i32, i32),
 }
 
 impl Node {
@@ -131,6 +133,7 @@ fn message(item: &Node, id: String) -> Option<Message> {
         id,
         text,
         rect: (left, top, right, bottom),
+        row: article.rect,
     })
 }
 
@@ -228,12 +231,14 @@ Some(Window) id="" name="#general | Server - Discord" rect=Some((-8, -8, 1928, 1
                 Message {
                     id: "15662".into(),
                     text: "Hello there".into(),
-                    rect: (412, 918, 1623, 939)
+                    rect: (412, 918, 1623, 939),
+                    row: (340, 894, 1639, 942)
                 },
                 Message {
                     id: "15663".into(),
                     text: "Wie geht's?".into(),
-                    rect: (412, 943, 1623, 964)
+                    rect: (412, 943, 1623, 964),
+                    row: (340, 942, 1639, 966)
                 },
             ]
         );
