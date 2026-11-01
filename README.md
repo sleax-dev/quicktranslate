@@ -18,13 +18,13 @@
 
 ## Download
 
-Each version is published as a separate release per platform. Pick yours on the [Releases](https://github.com/sleax-dev/quicktranslate/releases) page:
+Every release holds the Windows, macOS and Linux installers together. Get them from the [latest release](https://github.com/sleax-dev/quicktranslate/releases/latest):
 
-| Platform | Release | File |
-|---|---|---|
-| **Windows** 10 / 11, 64-bit | [v1.3.0 for Windows](https://github.com/sleax-dev/quicktranslate/releases/tag/v1.3.0-windows) | `QuickTranslate_1.3.0_x64-setup.exe` |
-| **macOS** 10.15+, Apple Silicon and Intel | [v1.3.0 for macOS](https://github.com/sleax-dev/quicktranslate/releases/tag/v1.3.0-macos) | `QuickTranslate_1.3.0_universal.dmg` |
-| **Linux** x86_64 | [v1.3.0 for Linux](https://github.com/sleax-dev/quicktranslate/releases/tag/v1.3.0-linux) | `.deb`, `.rpm` or `.AppImage` |
+| Platform | File |
+|---|---|
+| **Windows** 10 / 11, 64-bit | `QuickTranslate_1.3.0_x64-setup.exe` |
+| **macOS** 10.15+, Apple Silicon and Intel | `QuickTranslate_1.3.0_universal.dmg` |
+| **Linux** x86_64 | `.deb`, `.rpm` or `.AppImage` |
 
 Versions up to 1.2.0 were released for Windows only.
 
