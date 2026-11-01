@@ -12,6 +12,8 @@ export interface Settings {
   api_provider: 'google' | 'deepL' | 'openrouter';
   deepl_key: string;
   openrouter_key: string;
+  discord_send: boolean;
+  auto_update: boolean;
 }
 
 export interface Translation {

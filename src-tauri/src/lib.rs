@@ -1,6 +1,9 @@
+#[cfg(windows)]
+mod discord;
 mod i18n;
 mod settings;
 mod translate;
+mod update;
 
 use enigo::{Direction, Enigo, Key, Keyboard, Settings as EnigoSettings};
 use i18n::t;
@@ -351,6 +354,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_settings,
             update_settings,
@@ -359,11 +363,16 @@ pub fn run() {
             mica_enabled,
             translate_text,
             get_history,
-            clear_history
+            clear_history,
+            update::check_update,
+            update::install_update
         ])
         .setup(|app| {
             let handle = app.handle().clone();
             setup_tray(&handle)?;
+            update::start(&handle);
+            #[cfg(windows)]
+            discord::start(&handle);
             // A hotkey the system refuses is reported, and the app still starts so it can be changed.
             let hotkey = settings::current().hotkey;
             if let Err(e) = bind_hotkey(&handle, &hotkey) {

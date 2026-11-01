@@ -69,6 +69,16 @@ const en = {
   'settings.saved': 'Saved',
   'settings.version': 'Version {v}',
   'settings.sameLang': 'From and To are the same language',
+  'settings.discord': 'Translate before sending in Discord',
+  'settings.discord.desc': 'Enter in Discord translates your message into the target language, then sends it. Messages already in it and /commands go as they are; Shift+Enter is still a new line. Pick @mentions and emoji from the list with Tab.',
+  'settings.autoUpdate': 'Update automatically',
+  'settings.autoUpdate.desc': 'Checks GitHub for a new version and installs it while the window is closed.',
+  'settings.checkUpdate': 'Check now',
+  'settings.checking': 'Checking…',
+  'settings.upToDate': 'You have the latest version',
+  'settings.updateFound': 'Version {v} is out',
+  'settings.install': 'Update and restart',
+  'settings.installing': 'Updating…',
 } as const;
 
 type Key = keyof typeof en;
@@ -142,6 +152,16 @@ const tr: Record<Key, string> = {
   'settings.saved': 'Kaydedildi',
   'settings.version': 'Sürüm {v}',
   'settings.sameLang': 'Kaynak ve hedef aynı dil',
+  'settings.discord': 'Discord\'da göndermeden önce çevir',
+  'settings.discord.desc': 'Discord\'da Enter mesajınızı hedef dile çevirip öyle gönderir. Zaten o dilde olan mesajlar ve /komutlar olduğu gibi gider; Shift+Enter yine yeni satırdır. @etiket ve emojiyi listeden Tab ile seçin.',
+  'settings.autoUpdate': 'Otomatik güncelle',
+  'settings.autoUpdate.desc': 'GitHub\'da yeni sürüm olup olmadığına bakar, pencere kapalıyken kurar.',
+  'settings.checkUpdate': 'Şimdi denetle',
+  'settings.checking': 'Denetleniyor…',
+  'settings.upToDate': 'En son sürümü kullanıyorsunuz',
+  'settings.updateFound': '{v} sürümü çıktı',
+  'settings.install': 'Güncelle ve yeniden başlat',
+  'settings.installing': 'Güncelleniyor…',
 };
 
 /** The UI language, set from the Rust side at startup so it matches the tray and the errors. */

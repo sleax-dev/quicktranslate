@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "QuickTranslate",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "identifier": "com.quicktranslate.app",
   "build": {
     "frontendDist": "../dist",
@@ -80,6 +80,18 @@
         "depends": [
           "libxdo"
         ]
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDAwRTA1QjNFNjIwMTM5MEYKUldRUE9RRmlQbHZnQUpMNWw4Vi9nRXNiTmZHM1gvaTdlL1VjMFlMbG5jcCtyOGRtVFNRMmIxQzkK",
+      "endpoints": [
+        "https://github.com/sleax-dev/quicktranslate/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

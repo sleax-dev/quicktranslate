@@ -38,6 +38,8 @@ Versions up to 1.2.0 were released for Windows only.
 - 🌐 **30 languages** - Auto-detects the source language
 - 🆓 **Works without a key** - Google Translate by default, MyMemory as an automatic fallback; DeepL and OpenRouter with your own key
 - 📝 **Translation Style** - Formal or Casual (DeepL, OpenRouter)
+- 💬 **Translate before sending in Discord** (Windows, off by default) - Press Enter as usual; the message goes out in the target language. Turn it on in Settings
+- ⬆️ **Automatic updates** - New versions install themselves while the window is closed (from 1.4.0 on)
 
 ## Supported Languages
 

@@ -15,6 +15,9 @@ pub struct Settings {
     pub api_provider: String,     // one of PROVIDERS
     pub deepl_key: String,
     pub openrouter_key: String,
+    /// Windows: Enter in Discord translates the message into the target language before sending it.
+    pub discord_send: bool,
+    pub auto_update: bool,
     /// The single key of versions before 1.2, used by whichever service was selected. Read, never written.
     #[serde(skip_serializing)]
     api_key: String,
@@ -31,6 +34,8 @@ impl Default for Settings {
             api_provider: "google".to_string(),
             deepl_key: String::new(),
             openrouter_key: String::new(),
+            discord_send: false,
+            auto_update: true,
             api_key: String::new(),
         }
     }
