@@ -17,6 +17,8 @@ pub struct Settings {
     pub openrouter_key: String,
     /// Windows: Enter in Discord translates the message into the target language before sending it.
     pub discord_send: bool,
+    /// Windows: foreign messages in Discord get their translation drawn over them.
+    pub discord_read: bool,
     pub auto_update: bool,
     /// The single key of versions before 1.2, used by whichever service was selected. Read, never written.
     #[serde(skip_serializing)]
@@ -35,6 +37,7 @@ impl Default for Settings {
             deepl_key: String::new(),
             openrouter_key: String::new(),
             discord_send: false,
+            discord_read: false,
             auto_update: true,
             api_key: String::new(),
         }

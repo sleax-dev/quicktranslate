@@ -39,6 +39,7 @@ Versions up to 1.2.0 were released for Windows only.
 - 🆓 **Works without a key** - Google Translate by default, MyMemory as an automatic fallback; DeepL and OpenRouter with your own key
 - 📝 **Translation Style** - Formal or Casual (DeepL, OpenRouter)
 - 💬 **Translate before sending in Discord** (Windows, off by default) - Press Enter as usual; the message goes out in the target language. Turn it on in Settings
+- 🗨️ **Translated Discord messages** (Windows, beta, off by default) - Messages in other languages show their translation right over them, in Discord's own colours; hover to see the original. Reads what Discord shows to screen readers: no login, no client mod
 - ⬆️ **Automatic updates** - New versions install themselves while the window is closed (from 1.4.0 on)
 
 ## Supported Languages

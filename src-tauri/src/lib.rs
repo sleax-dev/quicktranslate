@@ -1,5 +1,7 @@
 #[cfg(windows)]
 mod discord;
+#[cfg(windows)]
+mod discord_read;
 mod i18n;
 mod settings;
 mod translate;
@@ -282,7 +284,19 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let quit_i = MenuItem::with_id(app, "quit", t("Çıkış", "Quit"), true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&open_i, &settings_i, &separator, &quit_i])?;
+    // Windows: a report of what Discord shows to screen readers, for when reading its messages breaks.
+    let report_i = MenuItem::with_id(
+        app,
+        "discord-report",
+        t("Discord tanı raporu", "Discord report"),
+        cfg!(windows),
+        None::<&str>,
+    )?;
+    let menu = if cfg!(windows) {
+        Menu::with_items(app, &[&open_i, &settings_i, &report_i, &separator, &quit_i])?
+    } else {
+        Menu::with_items(app, &[&open_i, &settings_i, &separator, &quit_i])?
+    };
     // The macOS menu bar wants a monochrome template icon, which it tints for light and dark mode.
     let (icon, template) = if cfg!(target_os = "macos") {
         (
@@ -304,6 +318,8 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 show_main_window(app);
                 let _ = app.emit("open-page", "settings");
             }
+            #[cfg(windows)]
+            "discord-report" => discord_read::diagnose(app),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -372,7 +388,10 @@ pub fn run() {
             setup_tray(&handle)?;
             update::start(&handle);
             #[cfg(windows)]
-            discord::start(&handle);
+            {
+                discord::start(&handle);
+                discord_read::start(&handle);
+            }
             // A hotkey the system refuses is reported, and the app still starts so it can be changed.
             let hotkey = settings::current().hotkey;
             if let Err(e) = bind_hotkey(&handle, &hotkey) {

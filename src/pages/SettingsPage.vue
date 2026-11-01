@@ -159,6 +159,20 @@ async function record(e: KeyboardEvent) {
         />
       </div>
 
+      <div v-if="os === 'windows'" class="row">
+        <div class="info">
+          <div class="name">{{ t('settings.discordRead') }}</div>
+          <div class="desc">{{ t('settings.discordRead.desc') }}</div>
+        </div>
+        <button
+          class="switch ctl"
+          role="switch"
+          :aria-checked="s.discord_read"
+          :aria-label="t('settings.discordRead')"
+          @click="s.discord_read = !s.discord_read"
+        />
+      </div>
+
       <div class="row">
         <div class="info">
           <div class="name">{{ t('settings.autoUpdate') }}</div>

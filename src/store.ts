@@ -13,6 +13,7 @@ export interface Settings {
   deepl_key: string;
   openrouter_key: string;
   discord_send: boolean;
+  discord_read: boolean;
   auto_update: boolean;
 }
 

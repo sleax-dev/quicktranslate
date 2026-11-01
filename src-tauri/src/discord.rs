@@ -9,7 +9,7 @@ use enigo::{Direction, Enigo, Key, Keyboard, Settings as EnigoSettings};
 use std::sync::Mutex;
 use tauri::AppHandle;
 use tauri_plugin_clipboard_manager::ClipboardExt;
-use windows_sys::Win32::Foundation::{CloseHandle, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
@@ -81,11 +81,17 @@ fn take_enter() -> bool {
 
 /// The Discord app (Discord, PTB, Canary) or a browser tab on discord.com ("… - Discord - Google Chrome").
 fn discord_in_front() -> bool {
+    discord_window().is_some()
+}
+
+/// The foreground window, when it is Discord.
+pub(crate) fn discord_window() -> Option<HWND> {
+    let window = unsafe { GetForegroundWindow() };
+    (!window.is_null() && is_discord_window(window)).then_some(window)
+}
+
+pub(crate) fn is_discord_window(window: HWND) -> bool {
     unsafe {
-        let window = GetForegroundWindow();
-        if window.is_null() {
-            return false;
-        }
         let mut title = [0u16; 512];
         let len = GetWindowTextW(window, title.as_mut_ptr(), title.len() as i32);
         let title = String::from_utf16_lossy(&title[..len.max(0) as usize]);
@@ -104,7 +110,7 @@ fn discord_in_front() -> bool {
             }
             CloseHandle(process);
         }
-        is_discord(&title, &exe)
+        !title.is_empty() && is_discord(&title, &exe)
     }
 }
 
