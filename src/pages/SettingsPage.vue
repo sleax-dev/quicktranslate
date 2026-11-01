@@ -5,9 +5,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { LANGUAGES, langName, os, t, type Lang } from '../i18n';
 import {
-  checkUpdate, installUpdate, languages, save, saveError, savedCount, settings, update,
+  accentInUse, checkUpdate, installUpdate, languages, picture, save, saveError, savedCount, setPicture, settings, update,
   type Settings, type Translation,
 } from '../store';
+import { ACCENTS, loadPicture } from '../theme';
 import Icon from '../components/Icon.vue';
 import Keys from '../components/Keys.vue';
 import WordList from '../components/WordList.vue';
@@ -27,6 +28,24 @@ const named = computed(() => languages.value.map(([code, en]) => [code, langName
 /** The system language's own name, for the "System (…)" choice. */
 const systemName = ref('');
 void invoke<Lang>('system_language').then((l) => (systemName.value = LANGUAGES[l]));
+
+// ---- appearance
+const pictureError = ref('');
+const fileInput = ref<HTMLInputElement | null>(null);
+const isPreset = computed(() => ACCENTS.includes(s.accent.toLowerCase()));
+
+async function pickPicture(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  (e.target as HTMLInputElement).value = '';
+  if (!file) return;
+  pictureError.value = '';
+  try {
+    await setPicture(await loadPicture(file));
+  } catch (err) {
+    console.warn(err);
+    pictureError.value = t('look.failed');
+  }
+}
 
 // ---- hotkey
 const recording = ref(false);
@@ -121,6 +140,71 @@ async function runTest() {
           </div>
           <button class="switch ctl" role="switch" :aria-checked="s.auto_start" :aria-label="t('settings.autostart')" @click="s.auto_start = !s.auto_start" />
         </div>
+      </div>
+    </section>
+
+    <!-- Appearance -->
+    <section class="stack">
+      <div class="sect-head"><h2>{{ t('look.title') }}</h2></div>
+      <div class="rows">
+        <div class="row stack">
+          <div class="info">
+            <div class="name">{{ t('look.accent') }}</div>
+            <div class="desc">{{ t('look.accent.desc') }}</div>
+          </div>
+          <div class="swatches" role="radiogroup" :aria-label="t('look.accent')" :aria-disabled="!!picture && s.accent_from_bg">
+            <button
+              v-for="c in ACCENTS"
+              :key="c"
+              class="swatch"
+              role="radio"
+              :style="{ '--c': c }"
+              :aria-checked="!(picture && s.accent_from_bg) && s.accent.toLowerCase() === c"
+              :aria-label="c"
+              @click="s.accent = c; s.accent_from_bg = false"
+            />
+            <label class="swatch custom" :style="{ '--c': isPreset ? 'transparent' : s.accent }" :aria-checked="!isPreset && !(picture && s.accent_from_bg)" role="radio" :title="t('look.custom')">
+              <input type="color" :value="s.accent" :aria-label="t('look.custom')" @input="s.accent = ($event.target as HTMLInputElement).value; s.accent_from_bg = false" />
+            </label>
+          </div>
+        </div>
+        <div class="row">
+          <div class="info">
+            <div class="name">{{ t('look.background') }}</div>
+            <div class="desc">{{ t('look.background.desc') }}</div>
+            <p v-if="pictureError" class="note bad" style="margin: 6px 0 0"><Icon name="warning" />{{ pictureError }}</p>
+          </div>
+          <div class="picture-row ctl">
+            <img v-if="picture" class="picture-thumb" :src="picture" alt="" />
+            <button class="btn" @click="fileInput?.click()">{{ t('look.pick') }}</button>
+            <button v-if="picture" class="btn subtle" @click="setPicture('')">{{ t('look.remove') }}</button>
+            <input ref="fileInput" type="file" accept="image/*" hidden @change="pickPicture" />
+          </div>
+        </div>
+        <template v-if="picture">
+          <div class="row">
+            <div class="info">
+              <div class="name">{{ t('look.blur') }}</div>
+              <div class="desc">{{ t('look.blur.desc') }}</div>
+            </div>
+            <button class="switch ctl" role="switch" :aria-checked="s.bg_blur" :aria-label="t('look.blur')" @click="s.bg_blur = !s.bg_blur" />
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="name">{{ t('look.dim') }}</div>
+              <div class="desc">{{ t('look.dim.desc') }}</div>
+            </div>
+            <input v-model.number="s.bg_dim" class="range ctl" type="range" min="0" max="0.9" step="0.05" :aria-label="t('look.dim')" />
+          </div>
+          <div class="row">
+            <div class="info">
+              <div class="name">{{ t('look.fromPicture') }}</div>
+              <div class="desc">{{ t('look.fromPicture.desc') }}</div>
+            </div>
+            <span v-if="s.accent_from_bg" class="swatch" :style="{ '--c': accentInUse }" aria-hidden="true" />
+            <button class="switch ctl" role="switch" :aria-checked="s.accent_from_bg" :aria-label="t('look.fromPicture')" @click="s.accent_from_bg = !s.accent_from_bg" />
+          </div>
+        </template>
       </div>
     </section>
 

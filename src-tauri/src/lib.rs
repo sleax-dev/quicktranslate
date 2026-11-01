@@ -1,5 +1,7 @@
 #[cfg(windows)]
 mod discord;
+#[cfg(any(windows, test))]
+mod discord_parse;
 #[cfg(windows)]
 mod discord_read;
 mod i18n;
@@ -8,7 +10,7 @@ mod translate;
 mod update;
 
 use enigo::{Direction, Enigo, Key, Keyboard, Settings as EnigoSettings};
-use i18n::t;
+use i18n::{Msg, msg};
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -84,6 +86,16 @@ fn discord_report(_app: AppHandle) {
 }
 
 #[tauri::command]
+fn get_background() -> String {
+    settings::background()
+}
+
+#[tauri::command]
+fn set_background(data_url: String) -> Result<(), String> {
+    settings::set_background(&data_url)
+}
+
+#[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
 }
@@ -146,12 +158,9 @@ fn remember(app: &AppHandle, original: String, translation: Translation) {
 
 /// Makes `hotkey` the only global shortcut: the previous one stops working.
 fn bind_hotkey(app: &AppHandle, hotkey: &str) -> Result<(), String> {
-    let shortcut: Shortcut = hotkey.parse().map_err(|_| {
-        t(
-            &format!("\"{hotkey}\" geçerli bir kısayol değil"),
-            &format!("\"{hotkey}\" is not a valid hotkey"),
-        )
-    })?;
+    let shortcut: Shortcut = hotkey
+        .parse()
+        .map_err(|_| msg(Msg::BadHotkey, &[&hotkey]))?;
     let shortcuts = app.global_shortcut();
     shortcuts.unregister_all().map_err(|e| e.to_string())?;
     shortcuts
@@ -168,14 +177,7 @@ fn bind_hotkey(app: &AppHandle, hotkey: &str) -> Result<(), String> {
                 }
             });
         })
-        .map_err(|_| {
-            t(
-                &format!(
-                    "{hotkey} başka bir uygulama tarafından kullanılıyor, başka bir kısayol seçin"
-                ),
-                &format!("{hotkey} is taken by another app, pick a different one"),
-            )
-        })
+        .map_err(|_| msg(Msg::HotkeyTaken, &[&hotkey]))
 }
 
 /// A system notification: the window is usually hidden when the hotkey is used.
@@ -250,7 +252,7 @@ fn copy(app: &AppHandle, enigo: &mut Enigo, select_all: bool) -> Option<String> 
 /// Copies the selected text (or, with nothing selected, the whole field), translates it and pastes the
 /// result over it. Blocking: runs on its own thread.
 fn translate_and_replace(app: &AppHandle) -> Result<(), String> {
-    let _busy = Busy::acquire().ok_or_else(|| t("Çeviri zaten sürüyor", "Already translating"))?;
+    let _busy = Busy::acquire().ok_or_else(|| msg(Msg::Busy, &[]))?;
     let mut enigo = Enigo::new(&EnigoSettings::default()).map_err(|e| e.to_string())?;
 
     // The hotkey's own keys are still held down: Shift would turn Ctrl+C into Ctrl+Shift+C
@@ -265,12 +267,7 @@ fn translate_and_replace(app: &AppHandle) -> Result<(), String> {
 
     let text = copy(app, &mut enigo, false)
         .or_else(|| copy(app, &mut enigo, true))
-        .ok_or_else(|| {
-            t(
-                "Kopyalanacak metin bulunamadı: bir metin kutusuna tıklayın ya da metin seçin",
-                "No text to copy: click into a text box or select some text",
-            )
-        })?;
+        .ok_or_else(|| msg(Msg::NoText, &[]))?;
 
     let result = translate::translate(&text, &settings::current())?;
     app.clipboard()
@@ -462,6 +459,8 @@ pub fn run() {
             get_history,
             clear_history,
             quit_app,
+            get_background,
+            set_background,
             system_language,
             discord_report,
             update::check_update,

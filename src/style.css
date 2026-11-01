@@ -13,6 +13,7 @@
   --accent-hover: #8ee9d2;
   --accent-pressed: #57c7aa;
   --on-accent: #06120f;
+  --accent-rgb: 111 224 195; /* the accent as "r g b", for translucent tints; theme.ts keeps both in step */
   --ok: #3ddc97;
   --warn: #ffc94d;
   --bad: #ff6b6b;
@@ -31,7 +32,7 @@ body { user-select: none; cursor: default; overscroll-behavior: none; }
 input, textarea, .selectable { user-select: text; cursor: text; }
 img, svg { -webkit-user-drag: none; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
-::selection { background: rgba(111, 224, 195, 0.3); color: var(--text); }
+::selection { background: rgb(var(--accent-rgb) / 0.3); color: var(--text); }
 button, input, select, textarea { font: inherit; color: inherit; }
 * { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.2) transparent; }
 
@@ -42,13 +43,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .grow { flex: 1; min-width: 0; }
 
 /* Mica shows through this tint; without Mica (Windows 10, macOS, Linux) it is opaque. */
-.app-bg { height: 100%; display: flex; flex-direction: column; background: radial-gradient(900px 500px at 85% -15%, rgba(111, 224, 195, 0.06), transparent 60%), var(--bg); }
-.app-bg.mica { background: radial-gradient(900px 500px at 85% -15%, rgba(111, 224, 195, 0.05), transparent 60%), rgba(11, 12, 13, 0.74); }
+.app-bg { height: 100%; display: flex; flex-direction: column; background: radial-gradient(900px 500px at 85% -15%, rgb(var(--accent-rgb) / 0.06), transparent 60%), var(--bg); }
+.app-bg.mica { background: radial-gradient(900px 500px at 85% -15%, rgb(var(--accent-rgb) / 0.05), transparent 60%), rgba(11, 12, 13, 0.74); }
 
 /* ---- title bar (Windows 11: 32px, caption-button hit area, drag region) */
 .titlebar { height: 32px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding-inline-start: 12px; font-size: 12px; }
-.titlebar .brand { display: flex; align-items: center; gap: 8px; pointer-events: none; }
-.titlebar .brand img { width: 18px; height: 18px; border-radius: 50%; }
+.titlebar .brand { display: flex; align-items: center; gap: 8px; color: var(--text); pointer-events: none; }
+.titlebar .brand img { width: 22px; height: 22px; border-radius: 50%; }
 .titlebar .grow { align-self: stretch; }
 .titlebar.macos { padding-inline-start: 80px; } /* room for the traffic lights */
 .tb-btn { width: 46px; height: 32px; display: grid; place-items: center; border: 0; background: transparent; transition: background 0.12s; }
@@ -59,35 +60,36 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* ---- layout */
 .body { flex: 1; min-height: 0; display: flex; }
-.sidebar { width: 208px; flex-shrink: 0; padding: 6px 10px 12px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.sidebar { width: 236px; flex-shrink: 0; padding: 4px 12px 10px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
 /* grouped as in Zanrei: a quiet label over each group after the first */
-.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group { display: flex; flex-direction: column; gap: 1px; }
 .nav-label { padding: 6px 12px 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .nav-item .on-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .update-chip {
-  display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(111, 224, 195, 0.35);
-  background: rgba(111, 224, 195, 0.1); color: var(--accent); font-size: 13px; font-weight: 500; text-align: start; transition: background 0.12s, transform 0.12s var(--ease);
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text); font-size: 13px; text-align: start; transition: background 0.12s, transform 0.12s var(--ease);
 }
-.update-chip:hover { background: rgba(111, 224, 195, 0.16); }
+.update-chip .icon { color: var(--accent); }
+.update-chip:hover { background: rgba(255, 255, 255, 0.11); }
 .update-chip:active { transform: scale(0.98); }
 .nav-item {
-  position: relative; display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 12px; border: 0; border-radius: 8px;
-  background: transparent; text-align: start; transition: background 0.12s, transform 0.12s var(--ease);
+  position: relative; display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 12px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--text); text-align: start; transition: background 0.12s, transform 0.12s var(--ease);
 }
 .nav-item:hover { background: var(--surface-2); }
 .nav-item:active { transform: scale(0.98); }
 .nav-item.active { background: var(--surface-2); }
-.nav-item .ind { position: absolute; inset-inline-start: 0; top: 9px; width: 3px; height: 18px; border-radius: 3px; background: var(--accent); }
-.nav-item.active .icon { color: var(--accent); }
+.nav-item .ind { position: absolute; inset-inline-start: 0; top: 7px; width: 3px; height: 20px; border-radius: 3px; background: var(--accent); }
 .nav-item .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-item .count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .sidebar .spacer { flex: 1; }
 
-/* the hotkey, always in sight */
-.hotkey-chip { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; margin-bottom: 4px; border-radius: 10px; border: 1px solid var(--border); background: transparent; text-align: start; transition: background 0.12s; }
-.hotkey-chip:hover { background: var(--surface-2); }
-.hotkey-chip .label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
-.hotkey-chip .live { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(111, 224, 195, 0.18); }
+/* the hotkey, always in sight: a quiet status line above Settings, as Zanrei shows Game Boost */
+.status-row { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border: 0; background: transparent; color: var(--muted); font-size: 12px; text-align: start; border-radius: 8px; }
+.status-row:hover { background: var(--surface-2); }
+.status-row .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-row .value { color: var(--text); font-weight: 600; white-space: nowrap; direction: ltr; }
+.status-row .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.25); }
 
 .content { flex: 1; min-width: 0; overflow-y: auto; padding: 4px 24px 24px 8px; }
 .page { display: flex; flex-direction: column; gap: 16px; }
@@ -155,7 +157,7 @@ kbd {
 .row.stack { flex-direction: column; align-items: stretch; gap: 10px; }
 
 .badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 10px; background: var(--surface-3); color: var(--muted); }
-.badge.accent { background: rgba(111, 224, 195, 0.14); color: var(--accent); }
+.badge.accent { background: rgb(var(--accent-rgb) / 0.14); color: var(--accent); }
 
 .note { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--muted); }
 .note .icon { margin-top: 2px; }
@@ -246,3 +248,22 @@ section.stack { display: flex; flex-direction: column; gap: 10px; }
 .chip button { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); transition: background 0.12s, color 0.12s; }
 .chip button:hover { background: var(--surface-3); color: var(--text); }
 .keys { direction: ltr; } /* Ctrl + Shift + T reads the same way in every language */
+
+/* ---- a background picture: behind everything, blurred or sharp, darkened for reading; the panels turn to
+   frosted glass over it */
+.has-picture .app-bg { position: relative; isolation: isolate; background: #000; }
+.has-picture .app-bg::before { content: ""; position: absolute; inset: -64px; z-index: -2; background: var(--bg-image) center / cover no-repeat; filter: blur(var(--bg-blur, 0px)); }
+.has-picture .app-bg::after { content: ""; position: absolute; inset: 0; z-index: -1; background: rgb(8 9 10 / var(--bg-dim, 0.45)); }
+.has-picture .rows, .has-picture .panes { background: rgb(14 15 16 / 0.62); } /* no backdrop-filter: the picture is blurred once, not under every panel on every frame */
+.has-picture .nav-item.active, .has-picture .nav-item:hover { background: rgb(255 255 255 / 0.1); }
+
+/* ---- appearance: colour swatches and the picture */
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.swatch { position: relative; width: 26px; height: 26px; border-radius: 50%; border: 0; padding: 0; background: var(--c); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.15); transition: transform 0.12s var(--ease); }
+.swatch:hover { transform: scale(1.1); }
+.swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--c); }
+.swatch.custom { background: conic-gradient(#ff6b6b, #ffd166, #5ee08b, #6aa8ff, #9d8cff, #ff7eb6, #ff6b6b); overflow: hidden; }
+.swatch.custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.picture-row { display: flex; gap: 12px; align-items: center; }
+.picture-thumb { width: 88px; height: 56px; border-radius: 8px; object-fit: cover; box-shadow: inset 0 0 0 1px var(--border); background: var(--surface-2); flex-shrink: 0; }
+.range { width: 160px; accent-color: var(--accent); }

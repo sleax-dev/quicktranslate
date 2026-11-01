@@ -1,4 +1,4 @@
-use crate::i18n::t;
+use crate::i18n::{Msg, msg};
 use crate::settings::Settings;
 use reqwest::blocking::{Client, RequestBuilder};
 use serde::Serialize;
@@ -25,14 +25,11 @@ type Answer = Result<(String, Option<String>), String>;
 /// goes the other way, into the source language, so one hotkey works in both directions.
 pub fn translate(text: &str, s: &Settings) -> Result<Translation, String> {
     if text.trim().is_empty() {
-        return Err(t("Çevrilecek metin boş", "There is no text to translate"));
+        return Err(msg(Msg::Empty, &[]));
     }
     let (source, target) = (s.source_lang.as_str(), s.target_lang.as_str());
     if source == target {
-        return Err(t(
-            "Kaynak ve hedef dil aynı",
-            "Source and target language are the same",
-        ));
+        return Err(msg(Msg::SameLang, &[]));
     }
 
     // The services that detect the language are asked to, even with a source language set: given one,
@@ -175,15 +172,9 @@ fn send(request: RequestBuilder, timeout_secs: u64, provider: &str) -> Result<St
         .send()
         .map_err(|e| {
             if e.is_timeout() {
-                t(
-                    &format!("{provider} yanıt vermedi (zaman aşımı)"),
-                    &format!("{provider} did not answer in time"),
-                )
+                msg(Msg::Timeout, &[&provider])
             } else {
-                t(
-                    &format!("{provider} bağlantı hatası: {e}"),
-                    &format!("{provider} connection error: {e}"),
-                )
+                msg(Msg::Connection, &[&provider, &e])
             }
         })?;
     let status = response.status();
@@ -192,15 +183,9 @@ fn send(request: RequestBuilder, timeout_secs: u64, provider: &str) -> Result<St
         return Ok(body);
     }
     let reason = match status.as_u16() {
-        401 | 403 => t(
-            "erişim reddedildi, API anahtarını kontrol edin",
-            "access denied, check the API key",
-        ),
-        429 => t(
-            "çok fazla istek, biraz bekleyin",
-            "too many requests, wait a moment",
-        ),
-        402 | 456 => t("kota doldu", "the quota is used up"),
+        401 | 403 => msg(Msg::AccessDenied, &[]),
+        429 => msg(Msg::TooMany, &[]),
+        402 | 456 => msg(Msg::Quota, &[]),
         _ => body.chars().take(200).collect(),
     };
     Err(format!("{provider} ({status}): {reason}"))
@@ -208,10 +193,7 @@ fn send(request: RequestBuilder, timeout_secs: u64, provider: &str) -> Result<St
 
 fn bad_answer(provider: &str, body: &str) -> String {
     let start: String = body.chars().take(200).collect();
-    t(
-        &format!("{provider} beklenmeyen bir yanıt verdi: {start}"),
-        &format!("{provider} sent an unexpected answer: {start}"),
-    )
+    msg(Msg::BadAnswer, &[&provider, &start])
 }
 
 /// Our code for a language a service reported ("zh-CN" → "zh", "iw" → "he", "PT-BR" → "pt").
@@ -313,7 +295,7 @@ fn deepl_code(code: &str) -> String {
 
 fn deepl(text: &str, source: &str, target: &str, api_key: &str, style: &str) -> Answer {
     if api_key.trim().is_empty() {
-        return Err(t("DeepL API anahtarı gerekli", "DeepL needs an API key"));
+        return Err(msg(Msg::NeedKey, &[&"DeepL"]));
     }
     let api_key = api_key.trim();
     // Free-plan keys end in ":fx" and use their own host.
@@ -361,10 +343,7 @@ fn deepl(text: &str, source: &str, target: &str, api_key: &str, style: &str) -> 
 
 fn openrouter(text: &str, source: &str, target: &str, api_key: &str, style: &str) -> Answer {
     if api_key.trim().is_empty() {
-        return Err(t(
-            "OpenRouter API anahtarı gerekli",
-            "OpenRouter needs an API key",
-        ));
+        return Err(msg(Msg::NeedKey, &[&"OpenRouter"]));
     }
     let system = instructions(source, target, style, false);
     let request_body = serde_json::json!({
@@ -398,7 +377,7 @@ const GEMINI_MODEL: &str = "gemini-flash-latest";
 /// formal style far better than a translation service. It also reports the language it read, as JSON.
 fn gemini(text: &str, source: &str, target: &str, api_key: &str, style: &str) -> Answer {
     if api_key.trim().is_empty() {
-        return Err(t("Gemini API anahtarı gerekli", "Gemini needs an API key"));
+        return Err(msg(Msg::NeedKey, &[&"Gemini"]));
     }
     let body = serde_json::json!({
         "systemInstruction": {"parts": [{"text": instructions(source, target, style, true)}]},

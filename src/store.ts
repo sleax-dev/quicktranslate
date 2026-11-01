@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { disable, enable } from '@tauri-apps/plugin-autostart';
 import { listen } from '@tauri-apps/api/event';
 import { t, uiLang, type Lang } from './i18n';
+import { applyLook } from './theme';
 
 export interface Settings {
   source_lang: string;
@@ -16,6 +17,12 @@ export interface Settings {
   gemini_key: string;
   ui_lang: Lang | '';
   protected_words: string[];
+  discord_send_lang: string;
+  discord_read_lang: string;
+  accent: string;
+  bg_blur: boolean;
+  bg_dim: number;
+  accent_from_bg: boolean;
   discord_send: boolean;
   discord_read: boolean;
   auto_update: boolean;
@@ -51,10 +58,13 @@ export async function load() {
     invoke<boolean>('mica_enabled'),
   ]);
   uiLang.value = lang;
+  picture.value = await invoke<string>('get_background');
+  watch([() => settings.value && lookOf(settings.value), picture], () => void restyle(), { deep: true });
   languages.value = langs;
   mica.value = hasMica;
   saved = { ...s };
   settings.value = s;
+  await restyle();
   // Every change is saved shortly after it is made; typing an API key saves once, not per letter.
   watch(settings, () => {
     clearTimeout(timer);
@@ -130,4 +140,29 @@ export async function installUpdate() {
 export function startUpdates() {
   void listen<string>('update-available', (e) => (update.value.version = e.payload));
   if (settings.value?.auto_update) void checkUpdate(true);
+}
+
+/** The background picture as a data URL, or ''. Kept apart from the settings: it is large. */
+export const picture = ref('');
+/** The accent on screen, which is the picture's when the accent comes from it. */
+export const accentInUse = ref('');
+
+const lookOf = (s: Settings) => ({ accent: s.accent, blur: s.bg_blur, dim: s.bg_dim, fromPicture: s.accent_from_bg });
+
+async function restyle() {
+  const s = settings.value;
+  if (!s) return;
+  accentInUse.value = await applyLook({
+    accent: s.accent,
+    background: picture.value,
+    blur: s.bg_blur,
+    dim: s.bg_dim,
+    accentFromBackground: s.accent_from_bg,
+  });
+}
+
+/** Saves the picture ('' removes it) and shows it. */
+export async function setPicture(dataUrl: string) {
+  await invoke('set_background', { dataUrl });
+  picture.value = dataUrl;
 }

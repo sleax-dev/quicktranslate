@@ -20,9 +20,19 @@ pub struct Settings {
     pub discord_send: bool,
     /// Windows: foreign messages in Discord get their translation drawn over them.
     pub discord_read: bool,
+    /// The language messages sent in Discord go out in; "" for "To".
+    pub discord_send_lang: String,
+    /// The language Discord messages are translated into for the user; "" for theirs (see discord_read).
+    pub discord_read_lang: String,
     pub auto_update: bool,
     /// Words never translated (names and the like), matched in any case, whole words only.
     pub protected_words: Vec<String>,
+    /// The accent colour, "#rrggbb".
+    pub accent: String,
+    /// With a background picture: blur it, darken it by bg_dim (0 to 0.9), take the accent from it.
+    pub bg_blur: bool,
+    pub bg_dim: f32,
+    pub accent_from_bg: bool,
     /// The interface language, one of i18n::UI_LANGUAGES, or "" for the system's.
     pub ui_lang: String,
     /// The single key of versions before 1.2, used by whichever service was selected. Read, never written.
@@ -44,7 +54,13 @@ impl Default for Settings {
             gemini_key: String::new(),
             discord_send: false,
             discord_read: false,
+            discord_send_lang: String::new(),
+            discord_read_lang: String::new(),
             auto_update: true,
+            accent: "#6fe0c3".to_string(),
+            bg_blur: true,
+            bg_dim: 0.45,
+            accent_from_bg: false,
             ui_lang: String::new(),
             protected_words: Vec::new(),
             api_key: String::new(),
@@ -66,6 +82,15 @@ impl Settings {
             self.api_provider = "google".to_string();
         }
         self.protected_words = clean_words(std::mem::take(&mut self.protected_words));
+        let hex = self.accent.strip_prefix('#').unwrap_or("");
+        if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            self.accent = Self::default().accent;
+        }
+        self.bg_dim = if self.bg_dim.is_finite() {
+            self.bg_dim.clamp(0.0, 0.9)
+        } else {
+            0.45
+        };
         self
     }
 }
@@ -115,6 +140,34 @@ fn get_settings_path() -> std::path::PathBuf {
         var("XDG_CONFIG_HOME").map_or_else(|| home().join(".config"), Into::into)
     };
     dir.join("QuickTranslate").join("settings.json")
+}
+
+/// The background picture, as the data URL the page made it into, next to settings.json.
+fn background_path() -> std::path::PathBuf {
+    get_settings_path().with_file_name("background.txt")
+}
+
+/// The picture as a data URL, or "" when there is none.
+pub fn background() -> String {
+    std::fs::read_to_string(background_path()).unwrap_or_default()
+}
+
+/// Saves the picture ("" removes it). Only a JPEG data URL from the page, at most 12 MB.
+pub fn set_background(data_url: &str) -> Result<(), String> {
+    let path = background_path();
+    if data_url.is_empty() {
+        return match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+            _ => Ok(()),
+        };
+    }
+    if !data_url.starts_with("data:image/jpeg;base64,") || data_url.len() > 12 << 20 {
+        return Err("not a picture".to_string());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, data_url).map_err(|e| e.to_string())
 }
 
 fn load_settings_from_file() -> Settings {

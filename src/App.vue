@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { os, t } from './i18n';
 import type { IconName } from './icons';
-import { load, mica, page, settings, startUpdates, update, type Page } from './store';
+import { load, mica, page, picture, settings, startUpdates, update, type Page } from './store';
 import { history, startHistory } from './history';
 import Icon from './components/Icon.vue';
-import Keys from './components/Keys.vue';
 import TitleBar from './components/TitleBar.vue';
 import TranslatePage from './pages/TranslatePage.vue';
 import HistoryPage from './pages/HistoryPage.vue';
@@ -25,6 +24,13 @@ const SETTINGS: NavItem = { page: 'settings', icon: 'settings', iconOn: 'setting
 const PAGES = { translate: TranslatePage, history: HistoryPage, discord: DiscordPage, settings: SettingsPage };
 
 const failed = ref('');
+/** "Ctrl+Shift+T", or "⌃⇧T" on macOS, as the menu writes it. */
+const hotkeyText = computed(() => {
+  const combo = settings.value?.hotkey ?? '';
+  if (os !== 'macos') return combo;
+  const mac: Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Cmd: '⌘' };
+  return combo.split('+').map((k) => mac[k] ?? k).join('');
+});
 
 onMounted(async () => {
   // The tray's "Settings" opens that page: in the URL when it opened the window, as an event when it was open.
@@ -45,7 +51,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div :class="mica ? 'app-bg mica' : 'app-bg'">
+  <div :class="mica && !picture ? 'app-bg mica' : 'app-bg'">
     <TitleBar />
     <div v-if="settings" class="body">
       <nav class="sidebar" aria-label="QuickTranslate">
@@ -83,9 +89,10 @@ onMounted(async () => {
         <button v-if="update.version" class="update-chip" @click="page = 'settings'">
           <Icon name="download" />{{ t('nav.updateTo', { v: update.version }) }}
         </button>
-        <button class="hotkey-chip" @click="page = 'settings'">
-          <span class="label"><span class="live" aria-hidden="true" />{{ t('nav.hotkey') }}</span>
-          <Keys :combo="settings.hotkey" />
+        <button class="status-row" @click="page = 'settings'">
+          <span class="dot" aria-hidden="true" />
+          <span class="label">{{ t('nav.hotkey') }}</span>
+          <span class="value">{{ hotkeyText }}</span>
         </button>
         <button
           :class="['nav-item', { active: page === SETTINGS.page }]"

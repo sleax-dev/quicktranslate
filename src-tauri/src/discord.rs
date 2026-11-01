@@ -3,7 +3,7 @@
 //! and pasted back, and an Enter of our own sends it. Our own Enter is marked as injected, so the hook
 //! lets it through.
 
-use crate::i18n::t;
+use crate::i18n::{Msg, msg};
 use crate::{Busy, copy, notify, press_ctrl, remember, settings, translate, wait};
 use enigo::{Direction, Enigo, Key, Keyboard, Settings as EnigoSettings};
 use std::sync::Mutex;
@@ -181,6 +181,9 @@ fn translate_and_send(app: &AppHandle) -> Result<(), String> {
     // never turned back into the source language.
     let mut s = settings::current();
     s.source_lang = "auto".to_string();
+    if !s.discord_send_lang.is_empty() {
+        s.target_lang = s.discord_send_lang.clone(); // Discord's own language, set on the Discord page
+    }
     match translate::translate(&text, &s) {
         Ok(result) if result.text.trim() != text.trim() => {
             app.clipboard()
@@ -200,14 +203,7 @@ fn translate_and_send(app: &AppHandle) -> Result<(), String> {
         Err(e) => {
             press(&mut enigo, Key::RightArrow);
             *FAILED.lock().unwrap_or_else(|e| e.into_inner()) = Some(text);
-            Err(t(
-                &format!(
-                    "Mesaj gönderilmedi, çeviri başarısız: {e}\nÇevirmeden göndermek için tekrar Enter'a basın."
-                ),
-                &format!(
-                    "Message not sent, translation failed: {e}\nPress Enter again to send it untranslated."
-                ),
-            ))
+            Err(msg(Msg::NotSent, &[&e]))
         }
     }
 }

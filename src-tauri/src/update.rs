@@ -2,7 +2,7 @@
 //! With automatic updates on, a found update is installed right away while the window is hidden
 //! (the app restarts by itself); with the window open it waits for the button in Settings.
 
-use crate::i18n::t;
+use crate::i18n::{Msg, msg};
 use crate::{notify, settings};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
@@ -41,13 +41,7 @@ async fn auto(app: &AppHandle) {
         let _ = app.emit("update-available", &update.version);
         return;
     }
-    notify(
-        app,
-        &t(
-            &format!("QuickTranslate {} sürümüne güncelleniyor…", update.version),
-            &format!("Updating QuickTranslate to {}…", update.version),
-        ),
-    );
+    notify(app, &msg(Msg::Updating, &[&update.version]));
     match update.download_and_install(|_, _| {}, || {}).await {
         Ok(()) => app.restart(),
         Err(e) => log::warn!("update install: {e}"),

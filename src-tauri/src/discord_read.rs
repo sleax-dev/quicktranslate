@@ -8,7 +8,8 @@
 //! The overlay lets every click through; hovering a message shows the original.
 
 use crate::discord::{discord_window, is_discord_window};
-use crate::i18n::{self, t};
+use crate::discord_parse::{self, Message, Node};
+use crate::i18n::{self, Msg, msg};
 use crate::{notify, settings, translate};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -30,14 +31,6 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 const OVERLAY: &str = "overlay";
 const POLL: Duration = Duration::from_millis(250);
-
-/// One message as read from Discord: screen pixels.
-#[derive(Clone, PartialEq)]
-struct Message {
-    id: String,
-    text: String,
-    rect: (i32, i32, i32, i32), // left, top, right, bottom
-}
 
 /// What the overlay draws: one translation, in pixels relative to the overlay's top-left corner.
 #[derive(Clone, PartialEq, Serialize)]
@@ -63,7 +56,9 @@ static COLOURS: LazyLock<Mutex<HashMap<String, (String, String)>>> = LazyLock::n
 /// interface language when that is set to detect.
 fn my_language() -> String {
     let s = settings::current();
-    if s.source_lang != "auto" {
+    if !s.discord_read_lang.is_empty() {
+        s.discord_read_lang
+    } else if s.source_lang != "auto" {
         s.source_lang
     } else {
         i18n::lang().into()
@@ -313,47 +308,33 @@ fn create_overlay(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow> {
     Ok(overlay)
 }
 
-/// The messages in a cached subtree, and the path to the smallest element holding all of them.
+/// A plain copy of a cached UI Automation subtree, for discord_parse.
+fn snapshot(e: &UIElement) -> Node {
+    let rect = e.get_cached_bounding_rectangle().ok();
+    Node {
+        kind: e
+            .get_cached_control_type()
+            .map(|k| format!("{k:?}"))
+            .unwrap_or_default(),
+        id: e.get_cached_automation_id().unwrap_or_default(),
+        name: e.get_cached_name().unwrap_or_default(),
+        rect: rect.map_or((0, 0, 0, 0), |r| {
+            (r.get_left(), r.get_top(), r.get_right(), r.get_bottom())
+        }),
+        children: e
+            .get_cached_children()
+            .unwrap_or_default()
+            .iter()
+            .map(snapshot)
+            .collect(),
+    }
+}
+
+/// The messages worth translating in a cached subtree, and the path to the message list.
 fn collect(root: &UIElement) -> (Vec<Message>, Option<Vec<usize>>) {
-    let mut messages = Vec::new();
-    let mut common: Option<Vec<usize>> = None;
-    let mut path = Vec::new();
-    walk(root, &mut path, &mut |element, path| {
-        let id = element.get_cached_automation_id().unwrap_or_default();
-        let Some(message_id) = id.strip_prefix("message-content-") else {
-            return true;
-        };
-        let Ok(rect) = element.get_cached_bounding_rectangle() else {
-            return false;
-        };
-        let rect = (
-            rect.get_left(),
-            rect.get_top(),
-            rect.get_right(),
-            rect.get_bottom(),
-        );
-        let text = text_of(element);
-        if rect.2 > rect.0 && rect.3 > rect.1 && translatable(&text) {
-            messages.push(Message {
-                id: message_id.to_string(),
-                text,
-                rect,
-            });
-            // The parent of the message's own element: shared prefix of all of them is the list.
-            let parent = &path[..path.len().saturating_sub(1)];
-            common = Some(match common.take() {
-                None => parent.to_vec(),
-                Some(c) => c
-                    .iter()
-                    .zip(parent)
-                    .take_while(|(a, b)| a == b)
-                    .map(|(a, _)| *a)
-                    .collect(),
-            });
-        }
-        false // no messages inside a message
-    });
-    (messages, common)
+    let (mut messages, list) = discord_parse::messages(&snapshot(root));
+    messages.retain(|m| translatable(&m.text));
+    (messages, list)
 }
 
 /// The cached element at `path`: child indexes from `root`.
@@ -365,49 +346,25 @@ fn element_at(root: &UIElement, path: &[usize]) -> Option<UIElement> {
     Some(element)
 }
 
-/// Depth-first over the cached tree; `visit` returns whether to go into the element's children.
-fn walk(
-    element: &UIElement,
-    path: &mut Vec<usize>,
-    visit: &mut dyn FnMut(&UIElement, &[usize]) -> bool,
-) {
-    if !visit(element, path) {
+/// The tree as text, in the format discord_parse's tests read.
+fn dump(node: &Node, depth: usize, out: &mut String, count: &mut usize) {
+    *count += 1;
+    if *count > 6000 {
         return;
     }
-    for (i, child) in element
-        .get_cached_children()
-        .unwrap_or_default()
-        .iter()
-        .enumerate()
-    {
-        path.push(i);
-        walk(child, path, visit);
-        path.pop();
+    let name: String = node.name.chars().take(100).collect();
+    let _ = writeln!(
+        out,
+        "{}Some({}) id={:?} name={:?} rect=Some({:?})",
+        "  ".repeat(depth),
+        node.kind,
+        node.id,
+        name.replace('\n', " "),
+        node.rect,
+    );
+    for child in &node.children {
+        dump(child, depth + 1, out, count);
     }
-}
-
-/// The message's text: its name, or the text of everything inside it.
-fn text_of(element: &UIElement) -> String {
-    let name = element.get_cached_name().unwrap_or_default();
-    if !name.trim().is_empty() {
-        return name.trim().to_string();
-    }
-    let mut parts = Vec::new();
-    walk(element, &mut Vec::new(), &mut |e, _| {
-        let children = e.get_cached_children().map(|c| c.len()).unwrap_or(0);
-        if children == 0 {
-            let name = e.get_cached_name().unwrap_or_default();
-            if !name.trim().is_empty() {
-                parts.push(name);
-            }
-        }
-        true
-    });
-    parts
-        .join("")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// Discord's client area in screen pixels.
@@ -491,10 +448,7 @@ pub fn diagnose(app: &AppHandle) {
             Ok(path) => {
                 use tauri_plugin_opener::OpenerExt;
                 let _ = app.opener().reveal_item_in_dir(path);
-                t(
-                    "Discord tanı raporu oluşturuldu. Bu dosya ekranda görünen mesajları içerir.",
-                    "Discord report written. The file contains the messages that were on screen.",
-                )
+                msg(Msg::ReportWritten, &[])
             }
             Err(e) => e.clone(),
         };
@@ -503,12 +457,7 @@ pub fn diagnose(app: &AppHandle) {
 }
 
 fn write_report(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let window = find_discord().ok_or_else(|| {
-        t(
-            "Açık bir Discord penceresi bulunamadı",
-            "No open Discord window found",
-        )
-    })?;
+    let window = find_discord().ok_or_else(|| msg(Msg::NoDiscord, &[]))?;
     let automation = UIAutomation::new().map_err(|e| e.to_string())?;
     let request = automation
         .create_cache_request()
@@ -533,31 +482,11 @@ fn write_report(app: &AppHandle) -> Result<std::path::PathBuf, String> {
             .element_from_handle_build_cache(Handle::from(window as isize), &request)
             .map_err(|e| e.to_string())?;
         let took = started.elapsed();
-        let (messages, list) = collect(&root);
+        let tree_root = snapshot(&root);
+        let (messages, list) = discord_parse::messages(&tree_root);
         let mut nodes = 0;
         let mut tree = String::new();
-        walk(&root, &mut Vec::new(), &mut |e, path| {
-            nodes += 1;
-            if nodes <= 6000 {
-                let r = e.get_cached_bounding_rectangle().ok();
-                let name: String = e
-                    .get_cached_name()
-                    .unwrap_or_default()
-                    .chars()
-                    .take(100)
-                    .collect();
-                let _ = writeln!(
-                    tree,
-                    "{}{:?} id={:?} name={:?} rect={:?}",
-                    "  ".repeat(path.len()),
-                    e.get_cached_control_type().ok(),
-                    e.get_cached_automation_id().unwrap_or_default(),
-                    name.replace('\n', " "),
-                    r.map(|r| (r.get_left(), r.get_top(), r.get_right(), r.get_bottom())),
-                );
-            }
-            true
-        });
+        dump(&tree_root, 0, &mut tree, &mut nodes);
         let _ = writeln!(
             out,
             "== attempt {attempt}: {nodes} elements in {took:?}, {} messages, list path {list:?}",

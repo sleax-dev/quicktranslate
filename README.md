@@ -25,10 +25,11 @@ Select text in any app, or just click into a text box, and press `Ctrl+Shift+T` 
 - **Both directions with one hotkey.** Text already in the target language goes back into yours, so the same keys answer a message and translate the reply.
 - **Casual or formal.** With Gemini (a free key), DeepL or OpenRouter, pick how the translation should sound: a message to a friend or an email to a client. The AI models are told how each language says "you" (*sen / siz*, *du / Sie*, *tu / vous* and so on).
 - **Words never translated.** Add names like *Umut* or *Hope* once. They stay as written everywhere, in any capitalisation, and the suffixes around them stay too.
-- **Discord.** Press Enter as usual and the message goes out translated. Incoming messages in other languages can show their translation right over them (beta, Windows). No login, nothing in Discord is changed.
+- **Discord.** Press Enter as usual and the message goes out translated, in the language you pick for Discord. Incoming messages in other languages show their translation right over them, in the language you read (beta, Windows). No login, nothing in Discord is changed.
+- **Make it yours.** Pick an accent colour or any colour of your own, put a picture behind the window, blurred or sharp and darkened as much as you like, and let the accent follow the picture.
 - **Free out of the box.** Google Translate needs no key; MyMemory steps in if it is down.
 - **Light on your PC.** The window's WebView is closed when you close the window, the app runs in Windows efficiency mode while it waits, and the Discord keyboard hook exists only while that setting is on.
-- **Updates itself** from signed releases. Ten interface languages. No account, no telemetry.
+- **Updates itself** from signed releases. Ten interface languages, notifications included. No account, no telemetry.
 
 <table>
   <tr>

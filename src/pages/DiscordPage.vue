@@ -2,12 +2,13 @@
 import { computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { langName, t, uiLang } from '../i18n';
-import { page, settings } from '../store';
+import { languages, page, settings } from '../store';
 import Icon from '../components/Icon.vue';
 
 const s = settings.value!;
 /** Incoming messages go into "From", or the interface language while From detects (as on the Rust side). */
 const yourLang = computed(() => langName(s.source_lang !== 'auto' ? s.source_lang : uiLang.value));
+const named = computed(() => languages.value.map(([code, en]) => [code, langName(code, en)] as const));
 </script>
 
 <template>
@@ -37,7 +38,6 @@ const yourLang = computed(() => langName(s.source_lang !== 'auto' ? s.source_lan
         <div class="info">
           <div class="name">{{ t('discord.read') }} <span class="badge">{{ t('discord.beta') }}</span></div>
           <div class="desc">{{ t('discord.read.desc') }}</div>
-          <div class="desc" style="margin-top: 6px">{{ t('discord.yourLang', { lang: yourLang }) }}</div>
         </div>
         <button
           class="switch ctl"
@@ -48,6 +48,32 @@ const yourLang = computed(() => langName(s.source_lang !== 'auto' ? s.source_lan
         />
       </div>
     </div>
+
+    <section class="stack">
+      <div class="sect-head"><h2>{{ t('discord.langs') }}</h2></div>
+      <div class="rows">
+        <div class="row">
+          <div class="info">
+            <div class="name">{{ t('discord.sendLang') }}</div>
+            <div class="desc">{{ t('discord.sendLang.desc') }}</div>
+          </div>
+          <select v-model="s.discord_send_lang" class="select ctl" :aria-label="t('discord.sendLang')">
+            <option value="">{{ t('discord.sendLang.default', { lang: langName(s.target_lang) }) }}</option>
+            <option v-for="[code, name] in named" :key="code" :value="code">{{ name }}</option>
+          </select>
+        </div>
+        <div class="row">
+          <div class="info">
+            <div class="name">{{ t('discord.readLang') }}</div>
+            <div class="desc">{{ t('discord.readLang.desc') }}</div>
+          </div>
+          <select v-model="s.discord_read_lang" class="select ctl" :aria-label="t('discord.readLang')">
+            <option value="">{{ t('discord.readLang.default', { lang: yourLang }) }}</option>
+            <option v-for="[code, name] in named" :key="code" :value="code">{{ name }}</option>
+          </select>
+        </div>
+      </div>
+    </section>
 
     <div class="rows">
       <div class="row">
