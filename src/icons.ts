@@ -3,8 +3,12 @@ import translate from '@fluentui/svg-icons/icons/translate_24_regular.svg?raw';
 import translateOn from '@fluentui/svg-icons/icons/translate_24_filled.svg?raw';
 import history from '@fluentui/svg-icons/icons/history_24_regular.svg?raw';
 import historyOn from '@fluentui/svg-icons/icons/history_24_filled.svg?raw';
-import cloud from '@fluentui/svg-icons/icons/cloud_24_regular.svg?raw';
-import cloudOn from '@fluentui/svg-icons/icons/cloud_24_filled.svg?raw';
+import chat from '@fluentui/svg-icons/icons/chat_multiple_24_regular.svg?raw';
+import chatOn from '@fluentui/svg-icons/icons/chat_multiple_24_filled.svg?raw';
+import download from '@fluentui/svg-icons/icons/arrow_download_16_regular.svg?raw';
+import power from '@fluentui/svg-icons/icons/power_20_regular.svg?raw';
+import report from '@fluentui/svg-icons/icons/document_text_20_regular.svg?raw';
+import sparkle from '@fluentui/svg-icons/icons/sparkle_16_filled.svg?raw';
 import settings from '@fluentui/svg-icons/icons/settings_24_regular.svg?raw';
 import settingsOn from '@fluentui/svg-icons/icons/settings_24_filled.svg?raw';
 import swap from '@fluentui/svg-icons/icons/arrow_swap_20_regular.svg?raw';
@@ -20,7 +24,7 @@ import eye from '@fluentui/svg-icons/icons/eye_20_regular.svg?raw';
 import eyeOff from '@fluentui/svg-icons/icons/eye_off_20_regular.svg?raw';
 
 export const icons = {
-  translate, translateOn, history, historyOn, cloud, cloudOn, settings, settingsOn,
+  translate, translateOn, history, historyOn, chat, chatOn, settings, settingsOn, download, power, report, sparkle,
   swap, copy, close, minimize, keyboard, check, trash, arrow, warning, eye, eyeOff,
 };
 export type IconName = keyof typeof icons;

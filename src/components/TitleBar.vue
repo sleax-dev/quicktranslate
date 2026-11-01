@@ -11,7 +11,7 @@ const win = getCurrentWindow();
 <template>
   <div :class="['titlebar', os]" data-tauri-drag-region>
     <span class="brand">
-      <img src="/icons/32x32.png" alt="" />
+      <img src="/icons/logo.png" alt="" />
       <span>QuickTranslate</span>
     </span>
     <span class="grow" data-tauri-drag-region />

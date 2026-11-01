@@ -50,7 +50,8 @@ jobs:
       - uses: actions/checkout@v7
       - run: |
           sed "s/<version>/${GITHUB_REF_NAME#v}/g" .github/release-notes.md > notes.md
-          gh release create "$GITHUB_REF_NAME" --title "QuickTranslate $GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+          # Not "latest" yet: the updater reads releases/latest/latest.json, which exists only once updater-json ran.
+          gh release create "$GITHUB_REF_NAME" --title "QuickTranslate $GITHUB_REF_NAME" --notes-file notes.md --verify-tag --latest=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -123,3 +124,4 @@ jobs:
             --argjson p "$platforms" '{version: $v, notes: $n, pub_date: $d, platforms: $p}' > latest.json
           cat latest.json
           gh release upload "$GITHUB_REF_NAME" latest.json -R "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --latest

@@ -1,7 +1,8 @@
 import { ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { disable, enable } from '@tauri-apps/plugin-autostart';
-import { t, uiLang } from './i18n';
+import { listen } from '@tauri-apps/api/event';
+import { t, uiLang, type Lang } from './i18n';
 
 export interface Settings {
   source_lang: string;
@@ -9,9 +10,12 @@ export interface Settings {
   auto_start: boolean;
   hotkey: string;
   translation_type: 'casual' | 'formal';
-  api_provider: 'google' | 'deepL' | 'openrouter';
+  api_provider: 'google' | 'gemini' | 'deepL' | 'openrouter';
   deepl_key: string;
   openrouter_key: string;
+  gemini_key: string;
+  ui_lang: Lang | '';
+  protected_words: string[];
   discord_send: boolean;
   discord_read: boolean;
   auto_update: boolean;
@@ -24,7 +28,7 @@ export interface Translation {
   provider: string;
 }
 
-export type Page = 'translate' | 'history' | 'service' | 'settings';
+export type Page = 'translate' | 'history' | 'discord' | 'settings';
 
 export const page = ref<Page>('translate');
 export const settings = ref<Settings | null>(null);
@@ -43,7 +47,7 @@ export async function load() {
   const [s, langs, lang, hasMica] = await Promise.all([
     invoke<Settings>('get_settings'),
     invoke<[string, string][]>('get_languages'),
-    invoke<'tr' | 'en'>('ui_language'),
+    invoke<Lang>('ui_language'),
     invoke<boolean>('mica_enabled'),
   ]);
   uiLang.value = lang;
@@ -73,6 +77,8 @@ export async function save(): Promise<string> {
     return (saveError.value = String(e));
   }
   const autostartChanged = next.auto_start !== saved.auto_start;
+  // "" means the system's language, which only the Rust side knows.
+  if (next.ui_lang !== saved.ui_lang) uiLang.value = await invoke<Lang>('ui_language');
   saved = next;
   if (autostartChanged) {
     try {
@@ -84,4 +90,44 @@ export async function save(): Promise<string> {
   saveError.value = '';
   savedCount.value++;
   return '';
+}
+
+/** What the updater knows: the newer version, if any, and what it is doing. */
+export const update = ref<{ version: string | null; checked: boolean; busy: '' | 'checking' | 'installing'; error: string }>({
+  version: null,
+  checked: false,
+  busy: '',
+  error: '',
+});
+
+/** Checks GitHub. `quiet`: a failure is not shown, as on the check made when the window opens. */
+export async function checkUpdate(quiet = false) {
+  update.value.busy = 'checking';
+  update.value.error = '';
+  try {
+    update.value.version = await invoke<string | null>('check_update');
+    update.value.checked = true;
+  } catch (e) {
+    console.warn(e);
+    if (!quiet) update.value.error = t('settings.updateFailed');
+  }
+  update.value.busy = '';
+}
+
+/** Downloads and installs; the app restarts into the new version when it works. */
+export async function installUpdate() {
+  update.value.busy = 'installing';
+  update.value.error = '';
+  try {
+    await invoke('install_update');
+  } catch (e) {
+    console.warn(e);
+    update.value.error = t('settings.updateFailed');
+  }
+  update.value.busy = '';
+}
+
+export function startUpdates() {
+  void listen<string>('update-available', (e) => (update.value.version = e.payload));
+  if (settings.value?.auto_update) void checkUpdate(true);
 }

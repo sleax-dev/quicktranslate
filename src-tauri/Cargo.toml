@@ -1,6 +1,6 @@
 [package]
 name = "quicktranslate"
-version = "1.5.0"
+version = "1.6.0"
 description = "Translate selected text in any app with a global hotkey"
 authors = ["thesleax"]
 license = "MIT"
@@ -33,4 +33,11 @@ tauri-plugin-updater = { version = "2", default-features = false, features = ["n
 
 [target.'cfg(windows)'.dependencies]
 uiautomation = { version = "0.25", default-features = false, features = ["input"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
+
+# Smaller binary that loads less into memory; the speed difference is invisible for an app that waits on the network.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

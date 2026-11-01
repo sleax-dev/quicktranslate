@@ -55,7 +55,7 @@ watch(input, () => {
   clearTimeout(timer);
   timer = setTimeout(run, 450);
 });
-watch(() => [s.source_lang, s.target_lang], run);
+watch(() => [s.source_lang, s.target_lang, s.translation_type], run);
 
 function swap() {
   const from = s.source_lang === 'auto' ? result.value?.detected ?? null : s.source_lang;
@@ -90,6 +90,11 @@ const canSwap = computed(() => s.source_lang !== 'auto' || !!result.value?.detec
       <div>
         <h1>{{ t('translate.title') }}</h1>
         <p>{{ t('translate.lead') }} <Keys :combo="s.hotkey" class="inline-keys" /></p>
+      </div>
+      <!-- Casual or formal, at hand where translating happens; Google has no style, so it is not offered there. -->
+      <div v-if="s.api_provider !== 'google'" class="seg" role="radiogroup" :aria-label="t('service.style')">
+        <button role="radio" :aria-checked="s.translation_type === 'casual'" @click="s.translation_type = 'casual'">{{ t('service.casual') }}</button>
+        <button role="radio" :aria-checked="s.translation_type === 'formal'" @click="s.translation_type = 'formal'">{{ t('service.formal') }}</button>
       </div>
     </header>
 

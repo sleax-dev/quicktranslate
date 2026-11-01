@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{LazyLock, RwLock};
 
 /// The services a user can pick. MyMemory is not one of them: it only steps in when Google fails.
-pub const PROVIDERS: &[&str] = &["google", "deepL", "openrouter"];
+pub const PROVIDERS: &[&str] = &["google", "gemini", "deepL", "openrouter"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)] // a field missing from an older settings file gets its default instead of resetting everything
@@ -11,15 +11,20 @@ pub struct Settings {
     pub target_lang: String,
     pub auto_start: bool,
     pub hotkey: String,
-    pub translation_type: String, // "formal" | "casual"; DeepL and OpenRouter only
+    pub translation_type: String, // "formal" | "casual"; Gemini, DeepL and OpenRouter only
     pub api_provider: String,     // one of PROVIDERS
     pub deepl_key: String,
     pub openrouter_key: String,
+    pub gemini_key: String,
     /// Windows: Enter in Discord translates the message into the target language before sending it.
     pub discord_send: bool,
     /// Windows: foreign messages in Discord get their translation drawn over them.
     pub discord_read: bool,
     pub auto_update: bool,
+    /// Words never translated (names and the like), matched in any case, whole words only.
+    pub protected_words: Vec<String>,
+    /// The interface language, one of i18n::UI_LANGUAGES, or "" for the system's.
+    pub ui_lang: String,
     /// The single key of versions before 1.2, used by whichever service was selected. Read, never written.
     #[serde(skip_serializing)]
     api_key: String,
@@ -36,9 +41,12 @@ impl Default for Settings {
             api_provider: "google".to_string(),
             deepl_key: String::new(),
             openrouter_key: String::new(),
+            gemini_key: String::new(),
             discord_send: false,
             discord_read: false,
             auto_update: true,
+            ui_lang: String::new(),
+            protected_words: Vec::new(),
             api_key: String::new(),
         }
     }
@@ -57,8 +65,25 @@ impl Settings {
         if !PROVIDERS.contains(&self.api_provider.as_str()) {
             self.api_provider = "google".to_string();
         }
+        self.protected_words = clean_words(std::mem::take(&mut self.protected_words));
         self
     }
+}
+
+pub const WORD_MIN: usize = 3;
+pub const WORD_MAX: usize = 40;
+pub const WORDS_MAX: usize = 200;
+
+/// Trimmed, WORD_MIN..=WORD_MAX characters, no case-insensitive duplicates, at most WORDS_MAX.
+fn clean_words(words: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    words
+        .into_iter()
+        .map(|w| w.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|w| (WORD_MIN..=WORD_MAX).contains(&w.chars().count()))
+        .filter(|w| seen.insert(w.to_lowercase()))
+        .take(WORDS_MAX)
+        .collect()
 }
 
 static SETTINGS: LazyLock<RwLock<Settings>> =
@@ -122,6 +147,13 @@ mod tests {
         let s = old.upgrade();
         assert_eq!(s.deepl_key, "k:fx");
         assert!(!serde_json::to_string(&s).unwrap().contains("api_key"));
+
+        let mut words: Settings = serde_json::from_str(
+            r#"{"protected_words":["  Umut ","umut","ab","New   York","x23456789012345678901234567890123456789012"]}"#,
+        )
+        .unwrap();
+        words = words.upgrade();
+        assert_eq!(words.protected_words, ["Umut", "New York"]);
 
         let mymemory: Settings = serde_json::from_str(r#"{"api_provider":"mymemory"}"#).unwrap();
         assert_eq!(mymemory.upgrade().api_provider, "google");

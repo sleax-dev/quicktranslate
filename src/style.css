@@ -48,7 +48,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* ---- title bar (Windows 11: 32px, caption-button hit area, drag region) */
 .titlebar { height: 32px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding-inline-start: 12px; font-size: 12px; }
 .titlebar .brand { display: flex; align-items: center; gap: 8px; pointer-events: none; }
-.titlebar .brand img { width: 16px; height: 16px; border-radius: 4px; }
+.titlebar .brand img { width: 18px; height: 18px; border-radius: 50%; }
 .titlebar .grow { align-self: stretch; }
 .titlebar.macos { padding-inline-start: 80px; } /* room for the traffic lights */
 .tb-btn { width: 46px; height: 32px; display: grid; place-items: center; border: 0; background: transparent; transition: background 0.12s; }
@@ -59,7 +59,17 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* ---- layout */
 .body { flex: 1; min-height: 0; display: flex; }
-.sidebar { width: 196px; flex-shrink: 0; padding: 6px 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.sidebar { width: 208px; flex-shrink: 0; padding: 6px 10px 12px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+/* grouped as in Zanrei: a quiet label over each group after the first */
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-label { padding: 6px 12px 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.nav-item .on-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.update-chip {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(111, 224, 195, 0.35);
+  background: rgba(111, 224, 195, 0.1); color: var(--accent); font-size: 13px; font-weight: 500; text-align: start; transition: background 0.12s, transform 0.12s var(--ease);
+}
+.update-chip:hover { background: rgba(111, 224, 195, 0.16); }
+.update-chip:active { transform: scale(0.98); }
 .nav-item {
   position: relative; display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 12px; border: 0; border-radius: 8px;
   background: transparent; text-align: start; transition: background 0.12s, transform 0.12s var(--ease);
@@ -197,7 +207,7 @@ kbd {
 .choice .desc { color: var(--muted); font-size: 13px; margin-top: 2px; }
 .key-field { position: relative; display: flex; }
 .key-field .input { flex: 1; padding-inline-end: 44px; font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; }
-.key-field .btn { position: absolute; right: 1px; top: 1px; height: 32px; }
+.key-field .btn { position: absolute; inset-inline-end: 1px; top: 1px; height: 32px; }
 .link { color: var(--accent); text-decoration: none; font-size: 13px; border: 0; padding: 0; background: none; cursor: pointer; }
 .link:hover { text-decoration: underline; }
 
@@ -215,3 +225,24 @@ kbd {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
 .stack-label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+/* ---- settings sections, as in Zanrei: a heading over each group of rows */
+section.stack { display: flex; flex-direction: column; gap: 10px; }
+.row.stack .sect-head .name { font-weight: 600; }
+.badge { display: inline-flex; align-items: center; gap: 3px; vertical-align: 1px; }
+.badge .icon svg { width: 12px; height: 12px; }
+.bad-text { color: var(--bad) !important; }
+.seg button:disabled { opacity: 0.4; pointer-events: none; }
+.seg[aria-disabled="true"] { opacity: 0.6; }
+[dir="rtl"] .flip-rtl { transform: scaleX(-1); }
+[dir="rtl"] .select { background-position: left 12px center; }
+
+/* ---- words never translated: an input, then the words as removable chips */
+.words { display: flex; flex-direction: column; gap: 10px; }
+.word-input { display: flex; gap: 8px; }
+.word-input .input { flex: 1; min-width: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.chip { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding-inline: 10px 2px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--border); font-size: 13px; }
+.chip button { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); transition: background 0.12s, color 0.12s; }
+.chip button:hover { background: var(--surface-3); color: var(--text); }
+.keys { direction: ltr; } /* Ctrl + Shift + T reads the same way in every language */

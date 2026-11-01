@@ -11,33 +11,65 @@ use tauri::AppHandle;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+    GetCurrentThreadId, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    QueryFullProcessImageNameW,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RETURN, VK_RWIN, VK_SHIFT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetForegroundWindow, GetMessageW, GetWindowTextW, GetWindowThreadProcessId,
-    HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, SetWindowsHookExW, WH_KEYBOARD_LL, WM_KEYDOWN,
+    HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, PM_NOREMOVE, PeekMessageW, PostThreadMessageW,
+    SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT,
 };
 
 static APP: Mutex<Option<AppHandle>> = Mutex::new(None);
 /// The message whose translation failed: a second Enter sends it untranslated.
 static FAILED: Mutex<Option<String>> = Mutex::new(None);
+/// The thread running the hook, while it is installed.
+static HOOK_THREAD: Mutex<Option<u32>> = Mutex::new(None);
 
-/// Installs the hook on its own thread. It costs nothing while the setting is off: Enter passes straight through.
-pub fn start(app: &AppHandle) {
+pub fn init(app: &AppHandle) {
     *APP.lock().unwrap_or_else(|e| e.into_inner()) = Some(app.clone());
-    std::thread::spawn(|| unsafe {
+    sync();
+}
+
+/// Installs the hook while the setting is on and removes it when it goes off. A low-level hook sees every
+/// key press on the system, so it only exists while it has a job.
+pub fn sync() {
+    let mut thread = HOOK_THREAD.lock().unwrap_or_else(|e| e.into_inner());
+    let wanted = settings::current().discord_send;
+    match (*thread, wanted) {
+        (None, true) => {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || run_hook(tx));
+            *thread = rx.recv().ok().flatten();
+        }
+        (Some(id), false) => {
+            unsafe { PostThreadMessageW(id, WM_QUIT, 0, 0) };
+            *thread = None;
+        }
+        _ => {}
+    }
+}
+
+/// Installs the hook and runs the message loop it is called through, until WM_QUIT. Sends back the
+/// thread id, or None when the hook could not be installed.
+fn run_hook(started: std::sync::mpsc::Sender<Option<u32>>) {
+    unsafe {
+        let mut msg: MSG = std::mem::zeroed();
+        // Creates this thread's message queue before anyone posts WM_QUIT to it.
+        PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE);
         let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook), std::ptr::null_mut(), 0);
         if hook.is_null() {
             log::warn!("Discord send mode: keyboard hook could not be installed");
+            let _ = started.send(None);
             return;
         }
-        // A low-level hook is called on the thread that installed it, through its message loop.
-        let mut msg: MSG = std::mem::zeroed();
+        let _ = started.send(Some(GetCurrentThreadId()));
         while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {}
-    });
+        UnhookWindowsHookEx(hook);
+    }
 }
 
 unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {

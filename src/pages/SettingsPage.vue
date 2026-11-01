@@ -2,49 +2,21 @@
 import { computed, ref, watch } from 'vue';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { langName, os, t } from '../i18n';
-import { languages, save, saveError, savedCount, settings } from '../store';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { LANGUAGES, langName, os, t, type Lang } from '../i18n';
+import {
+  checkUpdate, installUpdate, languages, save, saveError, savedCount, settings, update,
+  type Settings, type Translation,
+} from '../store';
 import Icon from '../components/Icon.vue';
 import Keys from '../components/Keys.vue';
+import WordList from '../components/WordList.vue';
 
 const s = settings.value!;
-const recording = ref(false);
-const hotkeyError = ref('');
 const version = ref('');
 const justSaved = ref(false);
 let savedTimer: ReturnType<typeof setTimeout> | undefined;
-
 void getVersion().then((v) => (version.value = v));
-
-/** The newer version found, '' when up to date, null before a check. */
-const update = ref<string | null>(null);
-const updating = ref<'' | 'checking' | 'installing'>('');
-const updateError = ref('');
-// The background check found one while the window was open: offer it here.
-void listen<string>('update-available', (e) => (update.value = e.payload));
-
-async function checkUpdate() {
-  updating.value = 'checking';
-  updateError.value = '';
-  try {
-    update.value = (await invoke<string | null>('check_update')) ?? '';
-  } catch (e) {
-    updateError.value = String(e);
-  }
-  updating.value = '';
-}
-
-async function installUpdate() {
-  updating.value = 'installing';
-  updateError.value = '';
-  try {
-    await invoke('install_update'); // restarts the app when it works
-  } catch (e) {
-    updateError.value = String(e);
-  }
-  updating.value = '';
-}
 watch(savedCount, () => {
   justSaved.value = true;
   clearTimeout(savedTimer);
@@ -52,6 +24,13 @@ watch(savedCount, () => {
 });
 
 const named = computed(() => languages.value.map(([code, en]) => [code, langName(code, en)] as const));
+/** The system language's own name, for the "System (…)" choice. */
+const systemName = ref('');
+void invoke<Lang>('system_language').then((l) => (systemName.value = LANGUAGES[l]));
+
+// ---- hotkey
+const recording = ref(false);
+const hotkeyError = ref('');
 const MODIFIERS = ['Control', 'Shift', 'Alt', 'Meta'];
 
 // Uses the physical key (e.code), so Shift+1 records "1", not "!", whatever the keyboard layout.
@@ -78,128 +57,242 @@ async function record(e: KeyboardEvent) {
   s.hotkey = parts.join('+');
   hotkeyError.value = await save();
 }
+
+// ---- translation service
+type Provider = Settings['api_provider'];
+type KeyField = 'gemini_key' | 'deepl_key' | 'openrouter_key';
+const PROVIDERS: { id: Provider; key?: KeyField; keyUrl?: string; placeholder?: string; badge?: 'free' | 'style' }[] = [
+  { id: 'google', badge: 'free' },
+  { id: 'gemini', key: 'gemini_key', keyUrl: 'https://aistudio.google.com/apikey', placeholder: 'AIza…', badge: 'style' },
+  { id: 'deepL', key: 'deepl_key', keyUrl: 'https://www.deepl.com/your-account/keys', placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx' },
+  { id: 'openrouter', key: 'openrouter_key', keyUrl: 'https://openrouter.ai/settings/keys', placeholder: 'sk-or-v1-…' },
+];
+const current = computed(() => PROVIDERS.find((p) => p.id === s.api_provider) ?? PROVIDERS[0]);
+const showKey = ref(false);
+const test = ref<{ ok: boolean; text: string } | null>(null);
+const testing = ref(false);
+
+function pick(id: Provider) {
+  s.api_provider = id;
+  test.value = null;
+}
+
+/** Translates a sample with what is on screen, so a bad key shows up here and not mid-sentence in another app. */
+async function runTest() {
+  testing.value = true;
+  test.value = null;
+  const started = performance.now();
+  try {
+    const problem = await save();
+    if (problem) throw problem;
+    const sample = s.target_lang === 'en' ? 'Merhaba, nasılsın? Yarın toplantıya gelebilir misin?' : 'Hey, how are you? Can you make it to the meeting tomorrow?';
+    const r = await invoke<Translation>('translate_text', { text: sample });
+    test.value = { ok: true, text: t('service.testOk', { text: r.text, ms: Math.round(performance.now() - started) }) };
+  } catch (e) {
+    test.value = { ok: false, text: String(e) };
+  } finally {
+    testing.value = false;
+  }
+}
 </script>
 
 <template>
   <section class="page">
     <header class="page-head">
-      <div>
-        <h1>{{ t('settings.title') }}</h1>
-      </div>
+      <div><h1>{{ t('settings.title') }}</h1></div>
       <span v-if="justSaved && !saveError" class="saved-hint"><Icon name="check" />{{ t('settings.saved') }}</span>
     </header>
 
-    <div class="rows">
-      <div class="row">
-        <div class="info">
-          <div class="name">{{ t('settings.hotkey') }}</div>
-          <div class="desc">{{ t('settings.hotkey.desc') }}</div>
-          <p v-if="hotkeyError" class="note bad" style="margin: 6px 0 0"><Icon name="warning" />{{ hotkeyError }}</p>
+    <!-- General -->
+    <section class="stack">
+      <div class="sect-head"><h2>{{ t('settings.general') }}</h2></div>
+      <div class="rows">
+        <div class="row">
+          <div class="info"><div class="name">{{ t('settings.language') }}</div></div>
+          <select v-model="s.ui_lang" class="select ctl" :aria-label="t('settings.language')">
+            <option value="">{{ t('settings.language.system', { lang: systemName }) }}</option>
+            <option v-for="(name, code) in LANGUAGES" :key="code" :value="code">{{ name }}</option>
+          </select>
         </div>
+        <div class="row">
+          <div class="info">
+            <div class="name">{{ t('settings.autostart') }}</div>
+            <div class="desc">{{ t('settings.autostart.desc') }}</div>
+          </div>
+          <button class="switch ctl" role="switch" :aria-checked="s.auto_start" :aria-label="t('settings.autostart')" @click="s.auto_start = !s.auto_start" />
+        </div>
+      </div>
+    </section>
+
+    <!-- Translation -->
+    <section class="stack">
+      <div class="sect-head"><h2>{{ t('settings.translation') }}</h2></div>
+      <div class="rows">
+        <div class="row stack">
+          <div class="info">
+            <div class="name">{{ t('settings.languages') }}</div>
+            <div class="desc">{{ t('settings.languages.desc') }}</div>
+          </div>
+          <div class="langbar" style="grid-template-columns: 1fr auto 1fr">
+            <label class="stack-label">
+              <span class="small muted">{{ t('translate.from') }}</span>
+              <select v-model="s.source_lang" class="select">
+                <option value="auto">{{ t('translate.auto') }}</option>
+                <option v-for="[code, name] in named" :key="code" :value="code">{{ name }}</option>
+              </select>
+            </label>
+            <Icon name="arrow" class="muted flip-rtl" style="margin-top: 20px" />
+            <label class="stack-label">
+              <span class="small muted">{{ t('translate.to') }}</span>
+              <select v-model="s.target_lang" class="select">
+                <option v-for="[code, name] in named" :key="code" :value="code">{{ name }}</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="row">
+          <div class="info">
+            <div class="name">{{ t('settings.hotkey') }}</div>
+            <div class="desc">{{ t('settings.hotkey.desc') }}</div>
+            <p v-if="hotkeyError" class="note bad" style="margin: 6px 0 0"><Icon name="warning" />{{ hotkeyError }}</p>
+          </div>
+          <button
+            :class="['recorder', 'ctl', { recording }]"
+            :title="t('settings.recordHint')"
+            @click="recording = true; hotkeyError = ''"
+            @keydown="record"
+            @blur="recording = false"
+          >
+            <template v-if="recording"><Icon name="keyboard" />{{ t('settings.record') }}</template>
+            <Keys v-else :combo="s.hotkey" />
+          </button>
+        </div>
+        <div id="words" class="row stack">
+          <div class="info">
+            <div class="name">{{ t('words.title') }}</div>
+            <div class="desc">{{ t('words.desc') }}</div>
+          </div>
+          <WordList />
+        </div>
+      </div>
+    </section>
+
+    <!-- Translation service -->
+    <section class="stack">
+      <div class="sect-head"><h2>{{ t('service.title') }}</h2></div>
+      <div class="rows" role="radiogroup" :aria-label="t('service.title')">
         <button
-          :class="['recorder', 'ctl', { recording }]"
-          :title="t('settings.recordHint')"
-          @click="recording = true; hotkeyError = ''"
-          @keydown="record"
-          @blur="recording = false"
+          v-for="p in PROVIDERS"
+          :key="p.id"
+          class="choice"
+          role="radio"
+          :aria-checked="s.api_provider === p.id"
+          @click="pick(p.id)"
         >
-          <template v-if="recording"><Icon name="keyboard" />{{ t('settings.record') }}</template>
-          <Keys v-else :combo="s.hotkey" />
+          <span class="radio" aria-hidden="true" />
+          <span class="info">
+            <span class="name">
+              {{ t(`service.${p.id}`) }}
+              <span v-if="p.badge === 'free'" class="badge accent">{{ t('service.free') }}</span>
+              <span v-if="p.badge === 'style'" class="badge accent"><Icon name="sparkle" />{{ t('service.bestStyle') }}</span>
+            </span>
+            <span class="desc" style="display: block">{{ t(`service.${p.id}.desc`) }}</span>
+          </span>
         </button>
       </div>
 
-      <div class="row stack">
-        <div class="info">
-          <div class="name">{{ t('settings.languages') }}</div>
-          <div class="desc">{{ t('settings.languages.desc') }}</div>
+      <div class="rows">
+        <div v-if="current.key" class="row stack">
+          <div class="sect-head">
+            <div class="name">{{ t('service.key') }}</div>
+            <button class="link" @click="openUrl(current.keyUrl!)">{{ t('service.getKey') }} ↗</button>
+          </div>
+          <div class="key-field">
+            <input
+              v-model.trim="s[current.key]"
+              class="input"
+              :type="showKey ? 'text' : 'password'"
+              :placeholder="current.placeholder"
+              :aria-label="t('service.key')"
+              spellcheck="false"
+              autocomplete="off"
+            />
+            <button class="btn subtle icon-only" :title="showKey ? t('service.hide') : t('service.show')" :aria-label="showKey ? t('service.hide') : t('service.show')" @click="showKey = !showKey">
+              <Icon :name="showKey ? 'eyeOff' : 'eye'" />
+            </button>
+          </div>
+          <p v-if="!s[current.key]" class="note warn" style="margin: 0">
+            <Icon name="warning" />{{ t('service.keyMissing', { provider: t(`service.${current.id}`) }) }}
+          </p>
         </div>
-        <div class="langbar" style="grid-template-columns: 1fr auto 1fr">
-          <label class="stack-label">
-            <span class="small muted">{{ t('translate.from') }}</span>
-            <select v-model="s.source_lang" class="select">
-              <option value="auto">{{ t('translate.auto') }}</option>
-              <option v-for="[code, name] in named" :key="code" :value="code">{{ name }}</option>
-            </select>
-          </label>
-          <Icon name="arrow" class="muted" style="margin-top: 20px" />
-          <label class="stack-label">
-            <span class="small muted">{{ t('translate.to') }}</span>
-            <select v-model="s.target_lang" class="select">
-              <option v-for="[code, name] in named" :key="code" :value="code">{{ name }}</option>
-            </select>
-          </label>
-        </div>
-      </div>
 
-      <div class="row">
-        <div class="info">
-          <div class="name">{{ t('settings.autostart') }}</div>
-          <div class="desc">{{ t('settings.autostart.desc') }}</div>
+        <div class="row">
+          <div class="info">
+            <div class="name">{{ t('service.style') }}</div>
+            <div class="desc">{{ current.key ? t('service.style.desc') : t('service.style.none') }}</div>
+          </div>
+          <div class="ctl seg" role="radiogroup" :aria-label="t('service.style')" :aria-disabled="!current.key">
+            <button role="radio" :disabled="!current.key" :aria-checked="s.translation_type === 'casual'" @click="s.translation_type = 'casual'">{{ t('service.casual') }}</button>
+            <button role="radio" :disabled="!current.key" :aria-checked="s.translation_type === 'formal'" @click="s.translation_type = 'formal'">{{ t('service.formal') }}</button>
+          </div>
         </div>
-        <button
-          class="switch ctl"
-          role="switch"
-          :aria-checked="s.auto_start"
-          :aria-label="t('settings.autostart')"
-          @click="s.auto_start = !s.auto_start"
-        />
-      </div>
 
-      <div v-if="os === 'windows'" class="row">
-        <div class="info">
-          <div class="name">{{ t('settings.discord') }}</div>
-          <div class="desc">{{ t('settings.discord.desc') }}</div>
-        </div>
-        <button
-          class="switch ctl"
-          role="switch"
-          :aria-checked="s.discord_send"
-          :aria-label="t('settings.discord')"
-          @click="s.discord_send = !s.discord_send"
-        />
-      </div>
-
-      <div v-if="os === 'windows'" class="row">
-        <div class="info">
-          <div class="name">{{ t('settings.discordRead') }}</div>
-          <div class="desc">{{ t('settings.discordRead.desc') }}</div>
-        </div>
-        <button
-          class="switch ctl"
-          role="switch"
-          :aria-checked="s.discord_read"
-          :aria-label="t('settings.discordRead')"
-          @click="s.discord_read = !s.discord_read"
-        />
-      </div>
-
-      <div class="row">
-        <div class="info">
-          <div class="name">{{ t('settings.autoUpdate') }}</div>
-          <div class="desc">{{ t('settings.autoUpdate.desc') }}</div>
-          <p v-if="updateError" class="note bad" style="margin: 6px 0 0"><Icon name="warning" />{{ updateError }}</p>
-          <p v-else-if="update" class="small" style="margin: 6px 0 0">{{ t('settings.updateFound', { v: update }) }}</p>
-          <p v-else-if="update === ''" class="small muted" style="margin: 6px 0 0">{{ t('settings.upToDate') }}</p>
-        </div>
-        <div style="display: flex; gap: 8px; align-items: center">
-          <button v-if="update" class="btn primary ctl" :disabled="!!updating" @click="installUpdate">
-            {{ updating === 'installing' ? t('settings.installing') : t('settings.install') }}
+        <div class="row">
+          <div class="info" aria-live="polite">
+            <p v-if="test" :class="['note', test.ok ? 'ok' : 'bad']" style="margin: 0">
+              <Icon :name="test.ok ? 'check' : 'warning'" /><span class="selectable">{{ test.text }}</span>
+            </p>
+            <span v-else class="muted">{{ t(`service.${current.id}`) }}</span>
+          </div>
+          <button class="btn primary ctl" :disabled="testing || (!!current.key && !s[current.key])" @click="runTest">
+            {{ testing ? t('service.testing') : t('service.test') }}
           </button>
-          <button v-else class="btn ctl" :disabled="!!updating" @click="checkUpdate">
-            {{ updating === 'checking' ? t('settings.checking') : t('settings.checkUpdate') }}
-          </button>
-          <button
-            class="switch ctl"
-            role="switch"
-            :aria-checked="s.auto_update"
-            :aria-label="t('settings.autoUpdate')"
-            @click="s.auto_update = !s.auto_update"
-          />
         </div>
       </div>
-    </div>
+    </section>
+
+    <!-- Updates -->
+    <section class="stack">
+      <div class="sect-head"><h2>{{ t('settings.updates') }}</h2></div>
+      <div class="rows">
+        <div class="row">
+          <div class="info">
+            <div class="name">{{ t('settings.version', { v: version }) }}</div>
+            <div v-if="update.error" class="desc bad-text">{{ update.error }}</div>
+            <div v-else-if="update.version" class="desc">{{ t('settings.updateFound', { v: update.version }) }}</div>
+            <div v-else-if="update.checked" class="desc">{{ t('settings.upToDate') }}</div>
+          </div>
+          <button v-if="update.version" class="btn primary ctl" :disabled="!!update.busy" @click="installUpdate">
+            {{ update.busy === 'installing' ? t('settings.installing') : t('settings.install') }}
+          </button>
+          <button v-else class="btn ctl" :disabled="!!update.busy" @click="checkUpdate()">
+            {{ update.busy === 'checking' ? t('settings.checking') : t('settings.checkUpdate') }}
+          </button>
+        </div>
+        <div class="row">
+          <div class="info">
+            <div class="name">{{ t('settings.autoUpdate') }}</div>
+            <div class="desc">{{ t('settings.autoUpdate.desc') }}</div>
+          </div>
+          <button class="switch ctl" role="switch" :aria-checked="s.auto_update" :aria-label="t('settings.autoUpdate')" @click="s.auto_update = !s.auto_update" />
+        </div>
+      </div>
+    </section>
+
+    <!-- Tools -->
+    <section class="stack">
+      <div class="sect-head"><h2>{{ t('settings.tools') }}</h2></div>
+      <div class="rows">
+        <div class="row">
+          <div class="info">
+            <div class="name">{{ t('settings.quit') }}</div>
+            <div class="desc">{{ t('settings.quit.desc') }}</div>
+          </div>
+          <button class="btn ctl" @click="invoke('quit_app')"><Icon name="power" />{{ t('settings.quit') }}</button>
+        </div>
+      </div>
+    </section>
 
     <p v-if="saveError && saveError !== hotkeyError" class="note bad" style="margin: 0"><Icon name="warning" />{{ saveError }}</p>
-    <p class="small muted" style="margin: 0">QuickTranslate · {{ t('settings.version', { v: version }) }}</p>
   </section>
 </template>

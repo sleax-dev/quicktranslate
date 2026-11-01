@@ -8,7 +8,7 @@
 //! The overlay lets every click through; hovering a message shows the original.
 
 use crate::discord::{discord_window, is_discord_window};
-use crate::i18n::{TURKISH, t};
+use crate::i18n::{self, t};
 use crate::{notify, settings, translate};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -60,15 +60,13 @@ static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(Mutex::default);
 static COLOURS: LazyLock<Mutex<HashMap<String, (String, String)>>> = LazyLock::new(Mutex::default);
 
 /// The language messages are translated into: "From" in Settings (the user's language), or the
-/// system's language when that is set to detect.
+/// interface language when that is set to detect.
 fn my_language() -> String {
     let s = settings::current();
     if s.source_lang != "auto" {
         s.source_lang
-    } else if *TURKISH {
-        "tr".into()
     } else {
-        "en".into()
+        i18n::lang().into()
     }
 }
 
@@ -83,7 +81,9 @@ pub fn start(app: &AppHandle) {
         };
         let mut reader = Reader::new(automation, app, to_translate);
         loop {
-            std::thread::sleep(POLL);
+            // Off: a glance at the setting once a second costs nothing measurable.
+            let on = settings::current().discord_read;
+            std::thread::sleep(if on { POLL } else { Duration::from_secs(1) });
             reader.tick();
         }
     });
@@ -178,7 +178,14 @@ impl Reader {
         let window = enabled.then(discord_window).flatten();
         let Some(window) = window else {
             if !enabled {
+                // Turned off: the overlay's WebView goes too, and with it its memory.
                 self.list = None;
+                if let Some(overlay) = self.app.get_webview_window(OVERLAY) {
+                    let _ = overlay.destroy();
+                    self.last_items.clear();
+                    self.last_bounds = (0, 0, 0, 0);
+                }
+                return;
             }
             return self.show(Vec::new());
         };
