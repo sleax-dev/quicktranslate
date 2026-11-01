@@ -26,6 +26,7 @@ use uiautomation::variants::Variant;
 use uiautomation::{UIAutomation, UIElement};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, GetDC, GetPixel, ReleaseDC};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClientRect, GetCursorPos, IsIconic, IsWindowVisible,
 };
@@ -35,6 +36,11 @@ const OVERLAY: &str = "overlay";
 /// mouse in between: Discord lights a row up the moment the mouse is on it, so the overlay must too.
 const POLL: Duration = Duration::from_millis(250);
 const FRAME: Duration = Duration::from_millis(25);
+/// After a click, translations stay hidden this long while Discord opens whatever was clicked (a profile,
+/// a menu), then come back only where no popup covers them.
+const CLICK_HOLD: Duration = Duration::from_millis(220);
+/// Frames the message list must stay still after scrolling before translations come back.
+const STILL_FRAMES: u32 = 3;
 const FRAMES_PER_POLL: u32 = (POLL.as_millis() / FRAME.as_millis()) as u32;
 
 /// What the overlay draws: one translation, in pixels relative to the overlay's top-left corner.
@@ -192,6 +198,13 @@ struct Reader {
     /// What had the keyboard focus last time: popups take it, so a change means "look again".
     last_focus: String,
     scans: u32,
+    /// The message list itself (inside `list`, the scroller). Its place on screen is checked every frame:
+    /// it moves the moment Discord scrolls or a new message pushes the others up.
+    list_inner: Option<UIElement>,
+    last_list_rect: Option<(i32, i32, i32, i32)>,
+    still_frames: u32,
+    window: Option<HWND>,
+    hold_until: Option<Instant>,
     app: AppHandle,
     to_translate: Sender<Job>,
     /// The element holding the message list, found by a full scan and reused while it keeps working.
@@ -229,6 +242,11 @@ impl Reader {
             popups: Vec::new(),
             last_focus: String::new(),
             scans: 0,
+            list_inner: None,
+            last_list_rect: None,
+            still_frames: 0,
+            window: None,
+            hold_until: None,
             cache_request,
             app,
             to_translate,
@@ -248,9 +266,11 @@ impl Reader {
         let enabled = settings::current().discord_read;
         self.on = enabled;
         let window = enabled.then(discord_window).flatten();
+        self.window = window;
         let Some(window) = window else {
             self.last_messages.clear();
             self.origin = None;
+            self.list_inner = None;
             if !enabled {
                 // Turned off: the overlay's WebView goes too, and with it its memory.
                 self.list = None;
@@ -264,14 +284,17 @@ impl Reader {
             return self.show(Vec::new());
         };
         let messages = self.read(window);
-        self.find_popups(window);
+        self.find_popups(window, false);
         // Moving messages mean scrolling (or a new message pushing them up): stay out of the way until
-        // they settle, rather than trail behind them.
-        self.moving = messages.iter().any(|m| {
-            self.last_messages
-                .iter()
-                .any(|old| old.id == m.id && old.row != m.row)
-        });
+        // they settle, rather than trail behind them. With the list element at hand, render() sees that
+        // every frame instead.
+        if self.list_inner.is_none() {
+            self.moving = messages.iter().any(|m| {
+                self.last_messages
+                    .iter()
+                    .any(|old| old.id == m.id && old.row != m.row)
+            });
+        }
         self.last_messages = messages;
         self.origin = client_rect(window);
         if let Some(origin) = self.origin {
@@ -291,6 +314,9 @@ impl Reader {
 
     /// Draws the translations of the last read messages, following the mouse: cheap enough for every frame.
     fn render(&mut self) {
+        if self.hold() {
+            return self.show(Vec::new());
+        }
         let Some(origin) = self.origin.filter(|_| !self.moving) else {
             return self.show(Vec::new());
         };
@@ -332,9 +358,56 @@ impl Reader {
         self.show(items);
     }
 
+    /// Whether to draw nothing this frame: a mouse button is down or was just let go (Discord may be opening
+    /// a popup), or the message list is moving. Once it is still again the messages are read afresh at once.
+    fn hold(&mut self) -> bool {
+        let pressed = |key: u16| unsafe { GetAsyncKeyState(key as i32) as u16 & 0x8000 != 0 };
+        if pressed(VK_LBUTTON) || pressed(VK_RBUTTON) {
+            self.hold_until = Some(Instant::now() + CLICK_HOLD);
+            return true;
+        }
+        if let Some(until) = self.hold_until {
+            if Instant::now() < until {
+                return true;
+            }
+            self.hold_until = None;
+            if let Some(window) = self.window {
+                self.find_popups(window, true);
+            }
+        }
+        let Some(rect) = self
+            .list_inner
+            .as_ref()
+            .and_then(|l| l.get_bounding_rectangle().ok())
+            .map(|r| (r.get_left(), r.get_top(), r.get_right(), r.get_bottom()))
+        else {
+            return false;
+        };
+        if self.last_list_rect != Some(rect) {
+            let first = self.last_list_rect.is_none();
+            self.last_list_rect = Some(rect);
+            if !first {
+                self.moving = true;
+                self.still_frames = 0;
+            }
+            return self.moving;
+        }
+        if self.moving {
+            self.still_frames += 1;
+            if self.still_frames < STILL_FRAMES {
+                return true;
+            }
+            // Still: read where everything is now, then draw again.
+            self.moving = false;
+            self.tick();
+            return true; // tick() has drawn
+        }
+        false
+    }
+
     /// Finds Discord's open popups. A full search costs about as much as reading the messages, so it runs
     /// when the keyboard focus moved (opening a popup moves it) and once a second otherwise.
-    fn find_popups(&mut self, window: HWND) {
+    fn find_popups(&mut self, window: HWND, force: bool) {
         self.scans = self.scans.wrapping_add(1);
         let focus = self
             .automation
@@ -350,7 +423,7 @@ impl Reader {
                 )
             })
             .unwrap_or_default();
-        if focus == self.last_focus && !self.scans.is_multiple_of(4) {
+        if !force && focus == self.last_focus && !self.scans.is_multiple_of(4) {
             return;
         }
         self.last_focus = focus;
@@ -381,6 +454,7 @@ impl Reader {
         {
             let messages = collect(&list).0;
             if !messages.is_empty() {
+                self.list_inner = inner_list(&list);
                 return messages;
             }
         }
@@ -392,6 +466,10 @@ impl Reader {
         };
         let (messages, path) = collect(&root);
         self.list = path.and_then(|path| element_at(&root, &path));
+        self.list_inner = self.list.as_ref().and_then(inner_list);
+        if self.list_inner.is_none() {
+            self.last_list_rect = None;
+        }
         messages
     }
 
@@ -487,6 +565,15 @@ fn collect(root: &UIElement) -> (Vec<Message>, Option<Vec<usize>>) {
     let (mut messages, list) = discord_parse::messages(&snapshot(root));
     messages.retain(|m| m.parts.iter().any(|p| translatable(&p.text)));
     (messages, list)
+}
+
+/// The List element of chat messages inside the scroller.
+fn inner_list(scroller: &UIElement) -> Option<UIElement> {
+    scroller
+        .get_cached_children()
+        .ok()?
+        .into_iter()
+        .find(|c| c.get_cached_control_type().ok() == Some(ControlType::List))
 }
 
 /// The cached element at `path`: child indexes from `root`.
