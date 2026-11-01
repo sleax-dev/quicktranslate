@@ -150,7 +150,8 @@ fn translate_parts(parts: &[String]) -> Result<Option<Vec<Option<String>>>, Stri
         .collect::<Vec<_>>()
         .join("\n");
     let r = translate::translate(&joined, &s)?;
-    if r.detected.as_deref() == Some(mine.as_str()) {
+    // In my language already, or the service is only guessing (short, misspelled, slang): leave it.
+    if r.detected.as_deref() == Some(mine.as_str()) || !r.sure {
         return Ok(None);
     }
     let lines: Vec<String> = r
@@ -167,7 +168,8 @@ fn translate_parts(parts: &[String]) -> Result<Option<Vec<Option<String>>>, Stri
             .iter()
             .map(|p| {
                 if translatable(p) {
-                    translate::translate(p, &s).map(|r| r.text)
+                    // Unsure of the language: kept as written, which same_words() below leaves untranslated.
+                    translate::translate(p, &s).map(|r| if r.sure { r.text } else { p.clone() })
                 } else {
                     Ok(p.clone())
                 }

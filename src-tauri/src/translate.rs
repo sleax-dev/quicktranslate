@@ -16,10 +16,16 @@ pub struct Translation {
     /// Where the text went: the target language, or the source one when the text was already in the target language.
     pub target: String,
     pub provider: &'static str,
+    /// Whether the service is sure of the language it detected. Short, misspelled or slangy lines often
+    /// get a wrong guess, and then a "translation" that means something else: Discord read mode skips them.
+    #[serde(skip)]
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub sure: bool,
 }
 
-/// One service's answer: the translation and the language it detected.
-type Answer = Result<(String, Option<String>), String>;
+/// One service's answer: the translation, the language it detected, and whether it is sure of that.
+type Reply = (String, Option<String>, bool);
+type Answer = Result<Reply, String>;
 
 /// Translates `text` with the service and languages in `s`. Text that is already in the target language
 /// goes the other way, into the source language, so one hotkey works in both directions.
@@ -43,14 +49,15 @@ pub fn translate(text: &str, s: &Settings) -> Result<Translation, String> {
     // Protected words (names and the like) travel as markers no service translates, and come back as written.
     let (text, kept) = protect(text, &s.protected_words);
     let text = text.as_str();
-    let (out, detected, provider) = run(text, first_source, target, s)?;
+    let ((out, detected, sure), provider) = run(text, first_source, target, s)?;
     if source != "auto" && detected.as_deref() == Some(target) {
-        let (back, _, provider) = run(text, target, source, s)?;
+        let ((back, _, _), provider) = run(text, target, source, s)?;
         return Ok(Translation {
             text: restore(&back, &kept),
             detected,
             target: source.to_string(),
             provider,
+            sure,
         });
     }
     Ok(Translation {
@@ -58,6 +65,7 @@ pub fn translate(text: &str, s: &Settings) -> Result<Translation, String> {
         detected,
         target: target.to_string(),
         provider,
+        sure,
     })
 }
 
@@ -143,9 +151,9 @@ fn run(
     source: &str,
     target: &str,
     s: &Settings,
-) -> Result<(String, Option<String>, &'static str), String> {
+) -> Result<(Reply, &'static str), String> {
     let style = s.translation_type.as_str();
-    let with = |answer: Answer, name| answer.map(|(out, det)| (out, det, name));
+    let with = |answer: Answer, name| answer.map(|a| (a, name));
     match s.api_provider.as_str() {
         "deepL" => with(deepl(text, source, target, &s.deepl_key, style), "DeepL"),
         "gemini" => with(gemini(text, source, target, &s.gemini_key, style), "Gemini"),
@@ -155,7 +163,7 @@ fn run(
         ),
         // Google needs no key. When it fails (rate limit, outage) MyMemory takes over.
         _ => match google(text, source, target) {
-            Ok((out, det)) => Ok((out, det, "Google")),
+            Ok(a) => Ok((a, "Google")),
             Err(google_err) => {
                 log::warn!("{google_err}; trying MyMemory");
                 with(mymemory(text, source, target), "MyMemory")
@@ -222,15 +230,17 @@ fn google(text: &str, source: &str, target: &str) -> Answer {
     parse_google(&body).ok_or_else(|| bad_answer("Google", &body))
 }
 
-/// The answer is `[[[translated, original, ...], ...one per sentence], null, "detected", ...]`.
-fn parse_google(body: &str) -> Option<(String, Option<String>)> {
+/// The answer is `[[[translated, original, ...], ...one per sentence], null, "detected", null, null, null,
+/// confidence, ...]`. Below 0.85 the guess is unreliable: "askim" comes back as Norwegian at 0.84.
+fn parse_google(body: &str) -> Option<(String, Option<String>, bool)> {
     let v: Value = serde_json::from_str(body).ok()?;
     let out: String = v[0]
         .as_array()?
         .iter()
         .filter_map(|seg| seg[0].as_str())
         .collect();
-    (!out.is_empty()).then(|| (out, v[2].as_str().map(normalize)))
+    let sure = v[6].as_f64().is_none_or(|c| c >= 0.85);
+    (!out.is_empty()).then(|| (out, v[2].as_str().map(normalize), sure))
 }
 
 /// MyMemory: free and keyless too, but weaker, 500 bytes per request and a daily limit.
@@ -272,7 +282,7 @@ fn mymemory(text: &str, source: &str, target: &str) -> Answer {
     let detected = v["responseData"]["detectedLanguage"]
         .as_str()
         .map(normalize);
-    Ok((unescape(out), detected))
+    Ok((unescape(out), detected, true))
 }
 
 /// MyMemory sometimes returns HTML entities.
@@ -338,6 +348,7 @@ fn deepl(text: &str, source: &str, target: &str, api_key: &str, style: &str) -> 
     Ok((
         out.to_string(),
         first["detected_source_language"].as_str().map(normalize),
+        true,
     ))
 }
 
@@ -367,7 +378,7 @@ fn openrouter(text: &str, source: &str, target: &str, api_key: &str, style: &str
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| bad_answer("OpenRouter", &body))?;
-    Ok((out.to_string(), None))
+    Ok((out.to_string(), None, true))
 }
 
 /// The model behind the Gemini service: Google's alias for its current Flash model, so it never points at a retired one.
@@ -389,9 +400,10 @@ fn gemini(text: &str, source: &str, target: &str, api_key: &str, style: &str) ->
                 "type": "OBJECT",
                 "properties": {
                     "source_language": {"type": "STRING"},
+                    "confident": {"type": "BOOLEAN"},
                     "translation": {"type": "STRING"}
                 },
-                "required": ["source_language", "translation"]
+                "required": ["source_language", "confident", "translation"]
             }
         }
     });
@@ -405,7 +417,7 @@ fn gemini(text: &str, source: &str, target: &str, api_key: &str, style: &str) ->
     parse_gemini(&body).ok_or_else(|| bad_answer("Gemini", &body))
 }
 
-fn parse_gemini(body: &str) -> Option<(String, Option<String>)> {
+fn parse_gemini(body: &str) -> Option<(String, Option<String>, bool)> {
     let v: Value = serde_json::from_str(body).ok()?;
     let answer: Value =
         serde_json::from_str(v["candidates"][0]["content"]["parts"][0]["text"].as_str()?).ok()?;
@@ -414,6 +426,7 @@ fn parse_gemini(body: &str) -> Option<(String, Option<String>)> {
         (
             out.to_string(),
             answer["source_language"].as_str().map(normalize),
+            answer["confident"].as_bool().unwrap_or(true),
         )
     })
 }
@@ -496,7 +509,9 @@ fn instructions(source: &str, target: &str, style: &str, json: bool) -> String {
     };
     let output = if json {
         "Answer with JSON: \"translation\" is the translation, \"source_language\" the ISO 639-1 code of the \
-         language the message is written in."
+         language the message is written in (a message in the target language with slang, typos, missing letters or \
+         chat abbreviations is still in the target language), \"confident\" false when the message is too short, \
+         misspelled or unclear to be sure which language it is."
     } else {
         "Reply with the translation only: no quotes, notes or explanations."
     };
@@ -558,9 +573,16 @@ mod tests {
         let body = r#"[[["Hello.\n","Merhaba.\n",null,null,10],["How are you?","Nasılsın?",null,null,3]],null,"tr",null]"#;
         assert_eq!(
             parse_google(body),
-            Some(("Hello.\nHow are you?".to_string(), Some("tr".to_string())))
+            Some((
+                "Hello.\nHow are you?".to_string(),
+                Some("tr".to_string()),
+                true
+            ))
         );
         assert_eq!(parse_google("[[],null,\"tr\"]"), None);
+        // A low-confidence guess ("napipn" as Portuguese) is marked as not sure.
+        let guess = r#"[[["napipn","napipn"]],null,"pt",null,null,null,0.2003]"#;
+        assert_eq!(parse_google(guess).map(|a| a.2), Some(false));
         assert_eq!(parse_google("<html>"), None);
     }
 
@@ -569,7 +591,7 @@ mod tests {
         let body = r#"{"candidates":[{"content":{"parts":[{"text":"{\"source_language\":\"tr\",\"translation\":\"Hi there\"}"}]}}]}"#;
         assert_eq!(
             parse_gemini(body),
-            Some(("Hi there".to_string(), Some("tr".to_string())))
+            Some(("Hi there".to_string(), Some("tr".to_string()), true))
         );
         assert_eq!(parse_gemini("{}"), None);
         let formal = instructions("auto", "tr", "formal", true);
@@ -610,10 +632,10 @@ mod tests {
     #[test]
     #[ignore]
     fn live_services() {
-        let (out, det) = google("merhaba tanışalım mı", "auto", "en").unwrap();
+        let (out, det, _) = google("merhaba tanışalım mı", "auto", "en").unwrap();
         assert!(out.to_lowercase().contains("meet"), "{out}");
         assert_eq!(det.as_deref(), Some("tr"));
-        let (out, _) = mymemory("merhaba", "tr", "en").unwrap();
+        let (out, _, _) = mymemory("merhaba", "tr", "en").unwrap();
         assert!(out.to_lowercase().contains("hello"), "{out}");
 
         // Already in the target language: goes back into the source one.

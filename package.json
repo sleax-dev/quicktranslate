@@ -1,6 +1,6 @@
 {
   "name": "quicktranslate",
-  "version": "1.7.3",
+  "version": "1.7.4",
   "description": "Instant translation app",
   "type": "module",
   "scripts": {
