@@ -142,6 +142,11 @@ const ar: Locale = {
   'settings.updateFailed': 'تعذّر الوصول إلى GitHub. تحقّق من الاتصال وحاول لاحقًا.',
   'settings.autoUpdate': 'التحديث تلقائيًا',
   'settings.autoUpdate.desc': 'يبحث عن إصدار جديد كل بضع ساعات ويثبّته والنافذة مغلقة.',
+  'settings.community': 'المجتمع',
+  'settings.live': '{n} متصل الآن',
+  'settings.statsError': 'تعذّر تحميل الأرقام المباشرة.',
+  'settings.usageStats': 'احسبني متصلًا',
+  'settings.usageStats.desc': 'يرسل معرّفًا عشوائيًا مجهول الهوية كل 5 دقائق لعدّ المستخدمين المتصلين. لا يُرسل أي شيء آخر.',
 
   'settings.tools': 'الأدوات',
   'settings.quit': 'الخروج من QuickTranslate',

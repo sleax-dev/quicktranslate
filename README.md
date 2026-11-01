@@ -29,7 +29,7 @@ Select text in any app, or just click into a text box, and press `Ctrl+Shift+T` 
 - **Make it yours.** Pick an accent colour or any colour of your own, put a picture behind the window, blurred or sharp and darkened as much as you like, and let the accent follow the picture.
 - **Free out of the box.** Google Translate needs no key; MyMemory steps in if it is down.
 - **Light on your PC.** The window's WebView is closed when you close the window, the app runs in Windows efficiency mode while it waits, and the Discord keyboard hook exists only while that setting is on.
-- **Updates itself** from signed releases. Ten interface languages, notifications included. No account, no telemetry.
+- **Updates itself** from signed releases. Ten interface languages, notifications included. No account, no tracking.
 
 <table>
   <tr>
@@ -67,7 +67,7 @@ The hotkey needs an X11 session: Wayland does not let apps register global hotke
 
 ## Privacy
 
-Text is sent only to the translation service you picked, only when you translate. History stays in memory and is gone when the app quits. Settings and keys are stored in `%APPDATA%\QuickTranslate`, `~/Library/Application Support/QuickTranslate` or `~/.config/QuickTranslate`. The app also contacts GitHub to check for updates.
+Text is sent only to the translation service you picked, only when you translate. History stays in memory and is gone when the app quits. Settings and keys are stored in `%APPDATA%\QuickTranslate`, `~/Library/Application Support/QuickTranslate` or `~/.config/QuickTranslate`. The app also contacts GitHub to check for updates, and, for the live user count, sends `stats.sleax.dev` a random ID made at install every 5 minutes: nothing else, and it can be turned off in Settings → Community.
 
 The Discord features read what Discord shows to screen readers through Windows UI Automation and type with the keyboard like you do: no client mod, no token, no bot.
 

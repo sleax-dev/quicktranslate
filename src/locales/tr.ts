@@ -142,6 +142,11 @@ const tr: Locale = {
   'settings.updateFailed': 'GitHub\'a ulaşılamadı. Bağlantıyı kontrol edip daha sonra tekrar deneyin.',
   'settings.autoUpdate': 'Otomatik güncelle',
   'settings.autoUpdate.desc': 'Birkaç saatte bir yeni sürüme bakar, pencere kapalıyken kurar.',
+  'settings.community': 'Topluluk',
+  'settings.live': 'Şu an {n} kişi çevrim içi',
+  'settings.statsError': 'Canlı sayılar yüklenemedi.',
+  'settings.usageStats': 'Beni çevrim içi say',
+  'settings.usageStats.desc': 'Canlı kullanıcı sayısı için 5 dakikada bir anonim, rastgele bir kimlik gönderir. Başka hiçbir şey gönderilmez.',
 
   'settings.tools': 'Araçlar',
   'settings.quit': 'QuickTranslate\'ten çık',

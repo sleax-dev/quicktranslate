@@ -142,6 +142,11 @@ const zh: Locale = {
   'settings.updateFailed': '无法连接 GitHub。请检查网络后稍后再试。',
   'settings.autoUpdate': '自动更新',
   'settings.autoUpdate.desc': '每隔几小时检查新版本，并在窗口关闭时安装。',
+  'settings.community': '社区',
+  'settings.live': '当前 {n} 人在线',
+  'settings.statsError': '无法加载实时数据。',
+  'settings.usageStats': '将我计为在线',
+  'settings.usageStats.desc': '每 5 分钟发送一个匿名随机 ID，用于实时在线人数统计。不会发送其他任何内容。',
 
   'settings.tools': '工具',
   'settings.quit': '退出 QuickTranslate',

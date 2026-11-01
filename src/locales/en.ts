@@ -142,6 +142,11 @@ const en = {
   'settings.updateFailed': 'Could not reach GitHub. Check the connection and try again later.',
   'settings.autoUpdate': 'Update automatically',
   'settings.autoUpdate.desc': 'Checks for a new version every few hours and installs it while the window is closed.',
+  'settings.community': 'Community',
+  'settings.live': '{n} online now',
+  'settings.statsError': 'Live numbers could not be loaded.',
+  'settings.usageStats': 'Count me as online',
+  'settings.usageStats.desc': 'Sends an anonymous random ID every 5 minutes for the live user count. Nothing else is sent.',
 
   'settings.tools': 'Tools',
   'settings.quit': 'Quit QuickTranslate',

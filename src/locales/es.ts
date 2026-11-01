@@ -142,6 +142,11 @@ const es: Locale = {
   'settings.updateFailed': 'No se pudo conectar con GitHub. Revisa la conexión e inténtalo más tarde.',
   'settings.autoUpdate': 'Actualizar automáticamente',
   'settings.autoUpdate.desc': 'Busca una versión nueva cada pocas horas y la instala mientras la ventana está cerrada.',
+  'settings.community': 'Comunidad',
+  'settings.live': '{n} en línea ahora',
+  'settings.statsError': 'No se pudieron cargar las cifras en vivo.',
+  'settings.usageStats': 'Contarme como en línea',
+  'settings.usageStats.desc': 'Envía un ID aleatorio y anónimo cada 5 minutos para el recuento de usuarios en vivo. No se envía nada más.',
 
   'settings.tools': 'Herramientas',
   'settings.quit': 'Salir de QuickTranslate',

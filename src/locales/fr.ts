@@ -142,6 +142,11 @@ const fr: Locale = {
   'settings.updateFailed': 'Impossible de joindre GitHub. Vérifiez la connexion et réessayez plus tard.',
   'settings.autoUpdate': 'Mettre à jour automatiquement',
   'settings.autoUpdate.desc': 'Cherche une nouvelle version toutes les quelques heures et l\'installe quand la fenêtre est fermée.',
+  'settings.community': 'Communauté',
+  'settings.live': '{n} en ligne maintenant',
+  'settings.statsError': 'Impossible de charger les chiffres en direct.',
+  'settings.usageStats': 'Me compter en ligne',
+  'settings.usageStats.desc': 'Envoie un identifiant aléatoire et anonyme toutes les 5 minutes pour le nombre d\'utilisateurs en direct. Rien d\'autre n\'est envoyé.',
 
   'settings.tools': 'Outils',
   'settings.quit': 'Quitter QuickTranslate',

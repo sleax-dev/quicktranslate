@@ -1,6 +1,6 @@
 [package]
 name = "quicktranslate"
-version = "1.7.1"
+version = "1.7.2"
 description = "Translate selected text in any app with a global hotkey"
 authors = ["thesleax"]
 license = "MIT"

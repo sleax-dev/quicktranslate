@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -28,6 +28,23 @@ const named = computed(() => languages.value.map(([code, en]) => [code, langName
 /** The system language's own name, for the "System (…)" choice. */
 const systemName = ref('');
 void invoke<Lang>('system_language').then((l) => (systemName.value = LANGUAGES[l]));
+
+// ---- community: live numbers from stats.sleax.dev, refreshed while the page is open
+interface AppStats { live: number }
+const stats = ref<AppStats | null>(null);
+const statsFailed = ref(false);
+const num = (n: number) => new Intl.NumberFormat(document.documentElement.lang || undefined).format(n ?? 0);
+async function loadStats() {
+  try {
+    stats.value = await invoke<AppStats>('app_stats');
+    statsFailed.value = false;
+  } catch {
+    statsFailed.value = !stats.value;
+  }
+}
+void loadStats();
+const statsTimer = setInterval(loadStats, 30_000);
+onUnmounted(() => clearInterval(statsTimer));
 
 // ---- appearance
 const pictureError = ref('');
@@ -331,6 +348,27 @@ async function runTest() {
           <button class="btn primary ctl" :disabled="testing || (!!current.key && !s[current.key])" @click="runTest">
             {{ testing ? t('service.testing') : t('service.test') }}
           </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Community -->
+    <section class="stack">
+      <div class="sect-head"><h2>{{ t('settings.community') }}</h2></div>
+      <div class="rows">
+        <div class="row">
+          <div class="info">
+            <div v-if="stats" class="name"><span class="live-dot" aria-hidden="true" />{{ t('settings.live', { n: num(stats.live) }) }}</div>
+            <div v-else-if="statsFailed" class="desc">{{ t('settings.statsError') }}</div>
+            <div v-else class="desc">…</div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="info">
+            <div class="name">{{ t('settings.usageStats') }}</div>
+            <div class="desc">{{ t('settings.usageStats.desc') }}</div>
+          </div>
+          <button class="switch ctl" role="switch" :aria-checked="s.usage_stats" :aria-label="t('settings.usageStats')" @click="s.usage_stats = !s.usage_stats" />
         </div>
       </div>
     </section>

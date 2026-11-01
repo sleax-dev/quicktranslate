@@ -142,6 +142,11 @@ const ru: Locale = {
   'settings.updateFailed': 'Не удалось связаться с GitHub. Проверьте подключение и попробуйте позже.',
   'settings.autoUpdate': 'Обновлять автоматически',
   'settings.autoUpdate.desc': 'Каждые несколько часов проверяет новую версию и устанавливает её, пока окно закрыто.',
+  'settings.community': 'Сообщество',
+  'settings.live': 'Сейчас онлайн: {n}',
+  'settings.statsError': 'Не удалось загрузить живую статистику.',
+  'settings.usageStats': 'Считать меня онлайн',
+  'settings.usageStats.desc': 'Каждые 5 минут отправляет анонимный случайный ID для подсчёта пользователей онлайн. Больше ничего не отправляется.',
 
   'settings.tools': 'Инструменты',
   'settings.quit': 'Выйти из QuickTranslate',

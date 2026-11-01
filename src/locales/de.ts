@@ -142,6 +142,11 @@ const de: Locale = {
   'settings.updateFailed': 'GitHub ist nicht erreichbar. Verbindung prüfen und später erneut versuchen.',
   'settings.autoUpdate': 'Automatisch aktualisieren',
   'settings.autoUpdate.desc': 'Sucht alle paar Stunden nach einer neuen Version und installiert sie, während das Fenster geschlossen ist.',
+  'settings.community': 'Community',
+  'settings.live': '{n} gerade online',
+  'settings.statsError': 'Live-Zahlen konnten nicht geladen werden.',
+  'settings.usageStats': 'Mich als online zählen',
+  'settings.usageStats.desc': 'Sendet alle 5 Minuten eine anonyme Zufalls-ID für die Live-Nutzerzahl. Sonst wird nichts gesendet.',
 
   'settings.tools': 'Werkzeuge',
   'settings.quit': 'QuickTranslate beenden',

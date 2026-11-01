@@ -142,6 +142,11 @@ const ja: Locale = {
   'settings.updateFailed': 'GitHub に接続できませんでした。接続を確認して、しばらくしてからお試しください。',
   'settings.autoUpdate': '自動で更新',
   'settings.autoUpdate.desc': '数時間ごとに新しいバージョンを確認し、ウィンドウが閉じている間にインストールします。',
+  'settings.community': 'コミュニティ',
+  'settings.live': '現在 {n} 人がオンライン',
+  'settings.statsError': 'ライブの数値を読み込めませんでした。',
+  'settings.usageStats': 'オンラインとして数える',
+  'settings.usageStats.desc': 'ライブのユーザー数のために、5 分ごとに匿名のランダム ID を送信します。それ以外は何も送信しません。',
 
   'settings.tools': 'ツール',
   'settings.quit': 'QuickTranslate を終了',

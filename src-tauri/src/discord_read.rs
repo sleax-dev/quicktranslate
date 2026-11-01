@@ -1,10 +1,10 @@
 //! Discord read mode (Windows): messages in a foreign language get their translation drawn over them.
 //!
 //! Discord shows its messages to screen readers through UI Automation, the accessibility interface of
-//! Windows. Each message's text sits in an element whose id is `message-content-<message id>`, with its
-//! place on the screen. Twice a second, while Discord is in front, the visible messages are read,
-//! new ones are translated into the user's language, and an overlay window over Discord paints each
-//! translation onto its message, in the colour behind it. Nothing in Discord is changed or injected.
+//! Windows (see discord_parse for what it looks like). Four times a second, while Discord is in front,
+//! the visible messages are read and new ones are translated into the user's language; between reads the
+//! overlay window over Discord follows the mouse, painting each translation onto its message in the colour
+//! behind it. Nothing in Discord is changed or injected.
 //! The overlay lets every click through; hovering a message shows the original.
 
 use crate::discord::{discord_window, is_discord_window};
@@ -20,8 +20,9 @@ use std::time::{Duration, Instant};
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
 };
-use uiautomation::core::UICacheRequest;
-use uiautomation::types::{Handle, TreeScope, UIProperty};
+use uiautomation::core::{UICacheRequest, UICondition};
+use uiautomation::types::{ControlType, Handle, TreeScope, UIProperty};
+use uiautomation::variants::Variant;
 use uiautomation::{UIAutomation, UIElement};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, GetDC, GetPixel, ReleaseDC};
@@ -30,7 +31,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 const OVERLAY: &str = "overlay";
+/// How often the messages are read (a UI Automation pass, ~15 ms), and how often the overlay follows the
+/// mouse in between: Discord lights a row up the moment the mouse is on it, so the overlay must too.
 const POLL: Duration = Duration::from_millis(250);
+const FRAME: Duration = Duration::from_millis(25);
+const FRAMES_PER_POLL: u32 = (POLL.as_millis() / FRAME.as_millis()) as u32;
 
 /// What the overlay draws: one translation, in pixels relative to the overlay's top-left corner.
 #[derive(Clone, PartialEq, Serialize)]
@@ -45,12 +50,18 @@ struct Item {
     fg: String,
 }
 
-/// Translations by (message id, text): Some(translation), or None when the message needs none.
-/// The text is in the key so an edited message is translated again.
-type Cache = HashMap<(String, String), Option<String>>;
+/// Translations by (message id, text): one per text block (None for a block that needs none), or None
+/// when the whole message needs none. The text is in the key so an edited message is translated again.
+type Cache = HashMap<Key, Option<Vec<Option<String>>>>;
+type Key = (String, String);
+/// A message to translate: its cache key and its text blocks.
+type Job = (Key, Vec<String>);
 static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(Mutex::default);
 /// Background colours sampled behind each message, by id.
 static COLOURS: LazyLock<Mutex<HashMap<String, (String, String)>>> = LazyLock::new(Mutex::default);
+/// The colour Discord lights each background colour up to under the mouse, learned the first time it is
+/// seen: from then on the overlay changes with Discord in the same frame, without sampling.
+static HOVER: LazyLock<Mutex<HashMap<String, (String, String)>>> = LazyLock::new(Mutex::default);
 
 /// The language messages are translated into: "From" in Settings (the user's language), or the
 /// interface language when that is set to detect.
@@ -75,37 +86,38 @@ pub fn start(app: &AppHandle) {
             Err(e) => return log::warn!("Discord read mode: UI Automation unavailable: {e}"),
         };
         let mut reader = Reader::new(automation, app, to_translate);
+        let mut frame = 0;
         loop {
-            // Off: a glance at the setting once a second costs nothing measurable.
-            let on = settings::current().discord_read;
-            std::thread::sleep(if on { POLL } else { Duration::from_secs(1) });
-            reader.tick();
+            if frame == 0 {
+                reader.tick();
+            } else {
+                reader.render();
+            }
+            if reader.on {
+                frame = (frame + 1) % FRAMES_PER_POLL;
+                std::thread::sleep(FRAME);
+            } else {
+                // Off: a glance at the setting once a second costs nothing measurable.
+                frame = 0;
+                std::thread::sleep(Duration::from_secs(1));
+            }
         }
     });
 }
 
 /// Translates queued messages one at a time, so a busy channel never floods the translation service.
-fn translator(jobs: Receiver<(String, String)>) {
+fn translator(jobs: Receiver<Job>) {
     let mut queued = HashSet::new();
-    while let Ok(job) = jobs.recv() {
-        if !queued.insert(job.clone()) || CACHE.lock().unwrap().contains_key(&job) {
+    while let Ok((key, parts)) = jobs.recv() {
+        if !queued.insert(key.clone()) || CACHE.lock().unwrap().contains_key(&key) {
             continue;
         }
-        let mine = my_language();
-        let mut s = settings::current();
-        s.source_lang = "auto".into();
-        s.target_lang = mine.clone();
-        let result = match translate::translate(&job.1, &s) {
-            Ok(r)
-                if r.detected.as_deref() != Some(mine.as_str())
-                    && r.text.trim() != job.1.trim() =>
-            {
-                Some(r.text)
-            }
-            Ok(_) => None,
+        let result = match translate_parts(&parts) {
+            Ok(r) => r,
             Err(e) => {
                 log::warn!("Discord read mode: {e}");
-                queued.remove(&job); // try again when it is seen next
+                queued.remove(&key); // try again when it is seen next
+                std::thread::sleep(Duration::from_secs(3)); // not at once: a busy service needs a moment
                 continue;
             }
         };
@@ -114,8 +126,54 @@ fn translator(jobs: Receiver<(String, String)>) {
             cache.clear();
             queued.clear();
         }
-        cache.insert(job, result);
+        cache.insert(key, result);
     }
+}
+
+/// One translation per block. The blocks go in one request, a line each; when the service does not
+/// give back as many lines, each block is sent on its own. A block left (nearly) as it was gets none:
+/// it is in my language already, or a name or a link.
+fn translate_parts(parts: &[String]) -> Result<Option<Vec<Option<String>>>, String> {
+    let mine = my_language();
+    let mut s = settings::current();
+    s.source_lang = "auto".into();
+    s.target_lang = mine.clone();
+    let joined = parts
+        .iter()
+        .map(|p| p.replace('\n', " "))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let r = translate::translate(&joined, &s)?;
+    if r.detected.as_deref() == Some(mine.as_str()) {
+        return Ok(None);
+    }
+    let lines: Vec<String> = r
+        .text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect();
+    let lines = if lines.len() == parts.len() {
+        lines
+    } else {
+        parts
+            .iter()
+            .map(|p| {
+                if translatable(p) {
+                    translate::translate(p, &s).map(|r| r.text)
+                } else {
+                    Ok(p.clone())
+                }
+            })
+            .collect::<Result<_, _>>()?
+    };
+    let out: Vec<Option<String>> = parts
+        .iter()
+        .zip(lines)
+        .map(|(p, t)| (translatable(p) && !discord_parse::same_words(&t, p)).then_some(t))
+        .collect();
+    Ok(out.iter().any(Option::is_some).then_some(out))
 }
 
 /// Worth translating: has letters, is not just a link.
@@ -127,22 +185,31 @@ fn translatable(text: &str) -> bool {
 struct Reader {
     automation: UIAutomation,
     cache_request: Option<UICacheRequest>,
+    /// Discord's popups (profile cards, menus, the emoji picker): Window or Menu elements inside it.
+    popup_condition: Option<UICondition>,
+    /// Where those popups are: translations never cover them.
+    popups: Vec<(i32, i32, i32, i32)>,
+    /// What had the keyboard focus last time: popups take it, so a change means "look again".
+    last_focus: String,
+    scans: u32,
     app: AppHandle,
-    to_translate: Sender<(String, String)>,
+    to_translate: Sender<Job>,
     /// The element holding the message list, found by a full scan and reused while it keeps working.
     list: Option<UIElement>,
     last_messages: Vec<Message>,
     last_items: Vec<Item>,
     last_bounds: (i32, i32, i32, i32),
-    ticks: u32,
+    /// Read mode is on (the loop runs at frame pace).
+    on: bool,
+    /// The messages are moving (scrolling): draw nothing until they settle.
+    moving: bool,
+    /// Discord's client area on screen, when it is in front.
+    origin: Option<(i32, i32, i32, i32)>,
+    frames: u32,
 }
 
 impl Reader {
-    fn new(
-        automation: UIAutomation,
-        app: AppHandle,
-        to_translate: Sender<(String, String)>,
-    ) -> Self {
+    fn new(automation: UIAutomation, app: AppHandle, to_translate: Sender<Job>) -> Self {
         let cache_request = automation.create_cache_request().ok().and_then(|r| {
             for p in [
                 UIProperty::AutomationId,
@@ -155,8 +222,13 @@ impl Reader {
             r.set_tree_scope(TreeScope::Subtree).ok()?;
             Some(r)
         });
+        let popup_condition = popup_condition(&automation);
         Self {
             automation,
+            popup_condition,
+            popups: Vec::new(),
+            last_focus: String::new(),
+            scans: 0,
             cache_request,
             app,
             to_translate,
@@ -164,14 +236,21 @@ impl Reader {
             last_messages: Vec::new(),
             last_items: Vec::new(),
             last_bounds: (0, 0, 0, 0),
-            ticks: 0,
+            on: false,
+            moving: false,
+            origin: None,
+            frames: 0,
         }
     }
 
+    /// Reads the messages on screen and queues new ones for translation.
     fn tick(&mut self) {
         let enabled = settings::current().discord_read;
+        self.on = enabled;
         let window = enabled.then(discord_window).flatten();
         let Some(window) = window else {
+            self.last_messages.clear();
+            self.origin = None;
             if !enabled {
                 // Turned off: the overlay's WebView goes too, and with it its memory.
                 self.list = None;
@@ -185,57 +264,111 @@ impl Reader {
             return self.show(Vec::new());
         };
         let messages = self.read(window);
+        self.find_popups(window);
         // Moving messages mean scrolling (or a new message pushing them up): stay out of the way until
         // they settle, rather than trail behind them.
-        let moved = messages.iter().any(|m| {
+        self.moving = messages.iter().any(|m| {
             self.last_messages
                 .iter()
-                .any(|old| old.id == m.id && old.rect != m.rect)
+                .any(|old| old.id == m.id && old.row != m.row)
         });
-        self.last_messages = messages.clone();
-        if moved {
-            return self.show(Vec::new());
+        self.last_messages = messages;
+        self.origin = client_rect(window);
+        if let Some(origin) = self.origin {
+            self.place_overlay(origin);
         }
-
-        let Some(origin) = client_rect(window) else {
-            return self.show(Vec::new());
-        };
-        self.place_overlay(origin);
-        let cursor = cursor();
-        let cache = CACHE.lock().unwrap().clone();
-        let mut items = Vec::new();
-        for m in messages {
-            let key = (m.id.clone(), m.text.clone());
-            match cache.get(&key) {
-                None => {
-                    let _ = self.to_translate.send(key);
-                }
-                Some(None) => {}
-                Some(Some(translation)) => {
-                    let (l, t, r, b) = m.rect;
-                    let inside = |(l, t, r, b): (i32, i32, i32, i32)| {
-                        (l..r).contains(&cursor.0) && (t..b).contains(&cursor.1)
-                    };
-                    // On the text: show the original.
-                    if inside(m.rect) {
-                        continue;
-                    }
-                    // Elsewhere on the message Discord lights the row up: follow it.
-                    let (bg, fg) = colours(&m, inside(m.row));
-                    items.push(Item {
-                        key: format!("{}:{t}", m.id),
-                        x: l - origin.0,
-                        y: t - origin.1,
-                        w: r - l,
-                        h: b - t,
-                        text: translation.clone(),
-                        bg,
-                        fg,
-                    });
-                }
+        let cache = CACHE.lock().unwrap();
+        for m in &self.last_messages {
+            let key = (m.id.clone(), m.text());
+            if !cache.contains_key(&key) {
+                let parts = m.parts.iter().map(|p| p.text.clone()).collect();
+                let _ = self.to_translate.send((key, parts));
             }
         }
+        drop(cache);
+        self.render();
+    }
+
+    /// Draws the translations of the last read messages, following the mouse: cheap enough for every frame.
+    fn render(&mut self) {
+        let Some(origin) = self.origin.filter(|_| !self.moving) else {
+            return self.show(Vec::new());
+        };
+        let cursor = cursor();
+        let inside = |(l, t, r, b): (i32, i32, i32, i32)| {
+            (l..r).contains(&cursor.0) && (t..b).contains(&cursor.1)
+        };
+        let cache = CACHE.lock().unwrap();
+        let mut items = Vec::new();
+        for m in &self.last_messages {
+            let Some(Some(translations)) = cache.get(&(m.id.clone(), m.text())) else {
+                continue;
+            };
+            let hovered = inside(m.row);
+            for (i, (part, translation)) in m.parts.iter().zip(translations).enumerate() {
+                let Some(translation) = translation else {
+                    continue;
+                };
+                // On the text: show the original. Under a Discord popup: leave the popup alone.
+                if inside(part.rect) || self.popups.iter().any(|p| overlaps(*p, part.rect)) {
+                    continue;
+                }
+                let (l, t, r, b) = part.rect;
+                // Elsewhere on the message Discord lights the row up: follow it.
+                let (bg, fg) = colours(&format!("{}:{i}", m.id), part.rect, m.row, hovered);
+                items.push(Item {
+                    key: format!("{}:{i}:{t}", m.id),
+                    x: l - origin.0,
+                    y: t - origin.1,
+                    w: r - l,
+                    h: b - t,
+                    text: translation.clone(),
+                    bg,
+                    fg,
+                });
+            }
+        }
+        drop(cache);
         self.show(items);
+    }
+
+    /// Finds Discord's open popups. A full search costs about as much as reading the messages, so it runs
+    /// when the keyboard focus moved (opening a popup moves it) and once a second otherwise.
+    fn find_popups(&mut self, window: HWND) {
+        self.scans = self.scans.wrapping_add(1);
+        let focus = self
+            .automation
+            .get_focused_element()
+            .ok()
+            .map(|f| {
+                let r = f.get_bounding_rectangle().ok();
+                format!(
+                    "{:?}{:?}{:?}",
+                    f.get_control_type().ok(),
+                    f.get_name().ok(),
+                    r.map(|r| (r.get_left(), r.get_top()))
+                )
+            })
+            .unwrap_or_default();
+        if focus == self.last_focus && !self.scans.is_multiple_of(4) {
+            return;
+        }
+        self.last_focus = focus;
+        let (Some(condition), Ok(root)) = (
+            &self.popup_condition,
+            self.automation
+                .element_from_handle(Handle::from(window as isize)),
+        ) else {
+            return self.popups.clear();
+        };
+        self.popups = root
+            .find_all(TreeScope::Descendants, condition)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|e| e.get_bounding_rectangle().ok())
+            .map(|r| (r.get_left(), r.get_top(), r.get_right(), r.get_bottom()))
+            .filter(|r| r.2 > r.0 && r.3 > r.1)
+            .collect();
     }
 
     /// The visible messages, from the remembered list element when it still works, else from a full scan.
@@ -284,12 +417,27 @@ impl Reader {
 
     fn show(&mut self, items: Vec<Item>) {
         // Sent again every two seconds too: a just-created overlay misses what came before it loaded.
-        self.ticks = self.ticks.wrapping_add(1);
-        if items != self.last_items || (!items.is_empty() && self.ticks.is_multiple_of(8)) {
+        self.frames = self.frames.wrapping_add(1);
+        if items != self.last_items || (!items.is_empty() && self.frames.is_multiple_of(80)) {
             let _ = self.app.emit_to(OVERLAY, "overlay", &items);
             self.last_items = items;
         }
     }
+}
+
+fn popup_condition(automation: &UIAutomation) -> Option<UICondition> {
+    let of = |t: ControlType| {
+        automation
+            .create_property_condition(UIProperty::ControlType, Variant::from(t as i32), None)
+            .ok()
+    };
+    automation
+        .create_or_condition(of(ControlType::Window)?, of(ControlType::Menu)?)
+        .ok()
+}
+
+fn overlaps(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> bool {
+    a.0 < b.2 && b.0 < a.2 && a.1 < b.3 && b.1 < a.3
 }
 
 /// A transparent, click-through, always-on-top window that never takes the focus from Discord.
@@ -337,7 +485,7 @@ fn snapshot(e: &UIElement) -> Node {
 /// The messages worth translating in a cached subtree, and the path to the message list.
 fn collect(root: &UIElement) -> (Vec<Message>, Option<Vec<usize>>) {
     let (mut messages, list) = discord_parse::messages(&snapshot(root));
-    messages.retain(|m| translatable(&m.text));
+    messages.retain(|m| m.parts.iter().any(|p| translatable(&p.text)));
     (messages, list)
 }
 
@@ -396,15 +544,26 @@ fn cursor() -> (i32, i32) {
 }
 
 /// The colour behind the message and a text colour that reads on it. Sampled at the row's right edge,
-/// beside the translation box (so never the overlay's own paint): once per message, and on every pass while
-/// the mouse is over it, when Discord shows the row lighter.
-fn colours(m: &Message, hovered: bool) -> (String, String) {
-    let mut cache = COLOURS.lock().unwrap();
-    if !hovered && let Some(c) = cache.get(&m.id) {
+/// beside the translation box (so never the overlay's own paint), once per message. Under the mouse
+/// Discord shows the row lighter: that colour is learned the first time and reused from then on.
+fn colours(
+    key: &str,
+    rect: (i32, i32, i32, i32),
+    row: (i32, i32, i32, i32),
+    hovered: bool,
+) -> (String, String) {
+    let base = COLOURS.lock().unwrap().get(key).cloned();
+    if !hovered && let Some(c) = base {
+        return c;
+    }
+    if hovered
+        && let Some(base) = &base
+        && let Some(c) = HOVER.lock().unwrap().get(&base.0)
+    {
         return c.clone();
     }
-    let (_, t, _, b) = m.rect;
-    let x = m.row.2 - 6;
+    let (_, t, _, b) = rect;
+    let x = row.2 - 6;
     let samples: Vec<u32> = unsafe {
         let dc = GetDC(std::ptr::null_mut());
         let s = [t + 2, (t + b) / 2, b - 2]
@@ -415,11 +574,19 @@ fn colours(m: &Message, hovered: bool) -> (String, String) {
         s
     };
     let result = describe(most_common(&samples));
-    if !hovered {
-        if cache.len() > 2000 {
-            cache.clear();
+    match (hovered, base) {
+        (false, _) => {
+            let mut cache = COLOURS.lock().unwrap();
+            if cache.len() > 2000 {
+                cache.clear();
+            }
+            cache.insert(key.to_string(), result.clone());
         }
-        cache.insert(m.id.clone(), result.clone());
+        // Until Discord has repainted, the sample is still the plain colour: learn only a real change.
+        (true, Some(base)) if base.0 != result.0 => {
+            HOVER.lock().unwrap().insert(base.0, result.clone());
+        }
+        _ => {}
     }
     result
 }
@@ -500,7 +667,9 @@ fn write_report(app: &AppHandle) -> Result<std::path::PathBuf, String> {
             messages.len()
         );
         for m in &messages {
-            let _ = writeln!(out, "message {} {:?}: {:?}", m.id, m.rect, m.text);
+            for p in &m.parts {
+                let _ = writeln!(out, "message {} {:?}: {:?}", m.id, p.rect, p.text);
+            }
         }
         if attempt == 2 || !messages.is_empty() {
             out.push_str(&tree);

@@ -26,6 +26,7 @@ export interface Settings {
   discord_send: boolean;
   discord_read: boolean;
   auto_update: boolean;
+  usage_stats: boolean;
 }
 
 export interface Translation {

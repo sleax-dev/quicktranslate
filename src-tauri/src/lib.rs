@@ -6,6 +6,7 @@ mod discord_parse;
 mod discord_read;
 mod i18n;
 mod settings;
+mod stats;
 mod translate;
 mod update;
 
@@ -464,12 +465,14 @@ pub fn run() {
             system_language,
             discord_report,
             update::check_update,
-            update::install_update
+            update::install_update,
+            stats::app_stats
         ])
         .setup(|app| {
             let handle = app.handle().clone();
             setup_tray(&handle)?;
             update::start(&handle);
+            stats::start(&handle);
             #[cfg(windows)]
             {
                 discord::init(&handle);
